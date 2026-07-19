@@ -12,13 +12,26 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/nemesis-project/api-nemesis/internal/infrastructure/config"
+	"github.com/nemesis-project/api-nemesis/internal/infrastructure/database"
 )
 
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	cfg := config.Load()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client, err := database.Connect(ctx, cfg.MongoURI)
+	if err != nil {
+		slog.Error("failed to connect to MongoDB", "error", err)
+		os.Exit(1)
 	}
+	slog.Info("connected to MongoDB", "db", cfg.DBName)
+
+	db := client.Database(cfg.DBName)
+	_ = db // será inyectado en los handlers de cada dominio
 
 	r := chi.NewRouter()
 
@@ -27,23 +40,30 @@ func main() {
 	r.Use(middleware.RequestID)
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		pingCtx, pingCancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer pingCancel()
+
+		dbStatus := "up"
+		if err := client.Ping(pingCtx, nil); err != nil {
+			dbStatus = "down"
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		
-		// Le ponemos el "_ =" para decirle al linter que ignoraremos el error intencionalmente
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"status":  "ok",
-			"version": "0.1.0",
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":    "ok",
+			"version":   "0.1.0",
+			"mongodb":   dbStatus,
 		})
 	})
 
 	srv := &http.Server{
-		Addr:    ":" + port,
+		Addr:    ":" + cfg.Port,
 		Handler: r,
 	}
 
 	go func() {
-		slog.Info("server starting", "port", port)
+		slog.Info("server starting", "port", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)
 			os.Exit(1)
@@ -56,12 +76,16 @@ func main() {
 
 	slog.Info("shutting down...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("forced shutdown", "error", err)
 		os.Exit(1)
+	}
+
+	if err := client.Disconnect(shutdownCtx); err != nil {
+		slog.Error("MongoDB disconnect error", "error", err)
 	}
 
 	slog.Info("server stopped")
