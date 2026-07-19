@@ -29,7 +29,9 @@ func main() {
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
+		
+		// Le ponemos el "_ =" para decirle al linter que ignoraremos el error intencionalmente
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"status":  "ok",
 			"version": "0.1.0",
 		})
