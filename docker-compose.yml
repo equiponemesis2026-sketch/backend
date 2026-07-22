@@ -1,0 +1,9 @@
+services:
+  api:
+    image: ghcr.io/equiponemesis2026-sketch/backend:latest
+    container_name: nemesis-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
