@@ -18,6 +18,9 @@ import (
 	userHttp "github.com/nemesis-project/api-nemesis/internal/user/delivery/http"
 	mongoRepo "github.com/nemesis-project/api-nemesis/internal/user/repository/mongo"
 	"github.com/nemesis-project/api-nemesis/internal/user/usecase"
+	tokenRepo "github.com/nemesis-project/api-nemesis/internal/token/repository"
+	tokenUseCase "github.com/nemesis-project/api-nemesis/internal/token/usecase"
+	tokenHttp "github.com/nemesis-project/api-nemesis/internal/token/delivery/http"
 )
 
 func main() {
@@ -68,6 +71,19 @@ func main() {
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		r.Post("/register", userHandler.Register)
 		r.Post("/login", userHandler.Login)
+	})
+
+	// --- Módulo 3: Tokens de Vinculación (WearOS/NMS) (Inyección de Dependencias) ---
+	tokenRepo := tokenRepo.NewDeviceRepository(db)
+	tokenUseCase := tokenUseCase.NewTokenUseCase(tokenRepo)
+	tokenHandler := tokenHttp.NewTokenHandler(tokenUseCase)
+
+	// Rutas del módulo de vínculo de dispositivos
+	r.Route("/api/v1/devices/tokens", func(r chi.Router) {
+		r.Post("/generate", tokenHandler.GenerateCode)
+	})
+	r.Route("/api/v1/devices/pair", func(r chi.Router) {
+		r.Post("/", tokenHandler.PairDevice)
 	})
 
 	srv := &http.Server{
