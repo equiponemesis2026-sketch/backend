@@ -29,7 +29,7 @@ func JWTAuth(secret string) func(http.Handler) http.Handler {
 
 			token, err := jwt.Parse(parts[1], func(t *jwt.Token) (interface{}, error) {
 				return []byte(secret), nil
-			})
+			}, jwt.WithValidMethods([]string{"HS256"}))
 			if err != nil || !token.Valid {
 				http.Error(w, `{"status":"error","message":"invalid or expired token"}`, http.StatusUnauthorized)
 				return
