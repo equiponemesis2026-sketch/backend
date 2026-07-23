@@ -15,6 +15,9 @@ import (
 
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/config"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/database"
+	userHttp "github.com/nemesis-project/api-nemesis/internal/user/delivery/http"
+	mongoRepo "github.com/nemesis-project/api-nemesis/internal/user/repository/mongo"
+	"github.com/nemesis-project/api-nemesis/internal/user/usecase"
 )
 
 func main() {
@@ -31,7 +34,11 @@ func main() {
 	slog.Info("connected to MongoDB", "db", cfg.DBName)
 
 	db := client.Database(cfg.DBName)
-	_ = db // será inyectado en los handlers de cada dominio
+
+	// --- Módulo 1: Usuarios y Auth (Inyección de Dependencias) ---
+	userRepo := mongoRepo.NewUserRepository(db)
+	userUseCase := usecase.NewUserUseCase(userRepo, "super-secret-key", 24*time.Hour)
+	userHandler := userHttp.NewUserHandler(userUseCase)
 
 	r := chi.NewRouter()
 
@@ -51,10 +58,16 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":    "ok",
-			"version":   "0.1.0",
-			"mongodb":   dbStatus,
+			"status":  "ok",
+			"version": "0.1.0",
+			"mongodb": dbStatus,
 		})
+	})
+
+	// Rutas del módulo de autenticación
+	r.Route("/api/v1/auth", func(r chi.Router) {
+		r.Post("/register", userHandler.Register)
+		r.Post("/login", userHandler.Login)
 	})
 
 	srv := &http.Server{
