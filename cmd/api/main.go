@@ -11,12 +11,16 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 
+	contactHttp "github.com/nemesis-project/api-nemesis/internal/contact/delivery/http"
+	contactMongo "github.com/nemesis-project/api-nemesis/internal/contact/repository/mongo"
+	contactUsecase "github.com/nemesis-project/api-nemesis/internal/contact/usecase"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/config"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/database"
+	"github.com/nemesis-project/api-nemesis/internal/infrastructure/middleware"
 	userHttp "github.com/nemesis-project/api-nemesis/internal/user/delivery/http"
-	mongoRepo "github.com/nemesis-project/api-nemesis/internal/user/repository/mongo"
+	userMongo "github.com/nemesis-project/api-nemesis/internal/user/repository/mongo"
 	"github.com/nemesis-project/api-nemesis/internal/user/usecase"
 	tokenRepo "github.com/nemesis-project/api-nemesis/internal/token/repository"
 	tokenUseCase "github.com/nemesis-project/api-nemesis/internal/token/usecase"
@@ -38,16 +42,24 @@ func main() {
 
 	db := client.Database(cfg.DBName)
 
-	// --- Módulo 1: Usuarios y Auth (Inyección de Dependencias) ---
-	userRepo := mongoRepo.NewUserRepository(db)
-	userUseCase := usecase.NewUserUseCase(userRepo, "super-secret-key", 24*time.Hour)
+	// --- Módulo 1: Usuarios y Auth ---
+	userRepoImpl := userMongo.NewUserRepository(db)
+	userUseCase := usecase.NewUserUseCase(userRepoImpl, cfg.JWTSecret, cfg.JWTExpiry)
 	userHandler := userHttp.NewUserHandler(userUseCase)
+
+	// --- Módulo 2: Contactos (Red de Apoyo) ---
+	contactRepoImpl := contactMongo.NewContactRepository(db)
+	contactUseCase := contactUsecase.NewContactUseCase(contactRepoImpl)
+	contactHandler := contactHttp.NewContactHandler(contactUseCase)
+
+	// Middleware de autenticación JWT
+	authMiddleware := middleware.JWTAuth(cfg.JWTSecret)
 
 	r := chi.NewRouter()
 
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
-	r.Use(middleware.RequestID)
+	r.Use(chiMiddleware.Logger)
+	r.Use(chiMiddleware.Recoverer)
+	r.Use(chiMiddleware.RequestID)
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		pingCtx, pingCancel := context.WithTimeout(r.Context(), 3*time.Second)
@@ -67,12 +79,13 @@ func main() {
 		})
 	})
 
-	// Rutas del módulo de autenticación
+	// Rutas del módulo de autenticación (públicas)
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		r.Post("/register", userHandler.Register)
 		r.Post("/login", userHandler.Login)
 	})
 
+<<<<<<< HEAD
 	// --- Módulo 3: Tokens de Vinculación (WearOS/NMS) (Inyección de Dependencias) ---
 	tokenRepo := tokenRepo.NewDeviceRepository(db)
 	tokenUseCase := tokenUseCase.NewTokenUseCase(tokenRepo)
@@ -84,6 +97,15 @@ func main() {
 	})
 	r.Route("/api/v1/devices/pair", func(r chi.Router) {
 		r.Post("/", tokenHandler.PairDevice)
+=======
+	// Rutas del módulo de contactos (protegidas con JWT)
+	r.Route("/api/v1/contacts", func(r chi.Router) {
+		r.Use(authMiddleware)
+		r.Get("/", contactHandler.GetAll)
+		r.Post("/", contactHandler.Create)
+		r.Put("/{id}", contactHandler.Update)
+		r.Delete("/{id}", contactHandler.Delete)
+>>>>>>> c664ebb1a1823b7279616384a833fb1eef45ca38
 	})
 
 	srv := &http.Server{
