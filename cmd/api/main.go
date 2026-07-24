@@ -19,12 +19,12 @@ import (
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/config"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/database"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/middleware"
+	tokenHttp "github.com/nemesis-project/api-nemesis/internal/token/delivery/http"
+	tokenRepo "github.com/nemesis-project/api-nemesis/internal/token/repository"
+	tokenUseCase "github.com/nemesis-project/api-nemesis/internal/token/usecase"
 	userHttp "github.com/nemesis-project/api-nemesis/internal/user/delivery/http"
 	userMongo "github.com/nemesis-project/api-nemesis/internal/user/repository/mongo"
 	"github.com/nemesis-project/api-nemesis/internal/user/usecase"
-	tokenRepo "github.com/nemesis-project/api-nemesis/internal/token/repository"
-	tokenUseCase "github.com/nemesis-project/api-nemesis/internal/token/usecase"
-	tokenHttp "github.com/nemesis-project/api-nemesis/internal/token/delivery/http"
 )
 
 func main() {
@@ -51,6 +51,11 @@ func main() {
 	contactRepoImpl := contactMongo.NewContactRepository(db)
 	contactUseCase := contactUsecase.NewContactUseCase(contactRepoImpl)
 	contactHandler := contactHttp.NewContactHandler(contactUseCase)
+
+	// --- Módulo 3: Tokens de Vinculación (WearOS/NMS) ---
+	tokenRepoImpl := tokenRepo.NewDeviceRepository(db)
+	tokenUc := tokenUseCase.NewTokenUseCase(tokenRepoImpl)
+	tokenHandler := tokenHttp.NewTokenHandler(tokenUc)
 
 	// Middleware de autenticación JWT
 	authMiddleware := middleware.JWTAuth(cfg.JWTSecret)
@@ -85,19 +90,6 @@ func main() {
 		r.Post("/login", userHandler.Login)
 	})
 
-<<<<<<< HEAD
-	// --- Módulo 3: Tokens de Vinculación (WearOS/NMS) (Inyección de Dependencias) ---
-	tokenRepo := tokenRepo.NewDeviceRepository(db)
-	tokenUseCase := tokenUseCase.NewTokenUseCase(tokenRepo)
-	tokenHandler := tokenHttp.NewTokenHandler(tokenUseCase)
-
-	// Rutas del módulo de vínculo de dispositivos
-	r.Route("/api/v1/devices/tokens", func(r chi.Router) {
-		r.Post("/generate", tokenHandler.GenerateCode)
-	})
-	r.Route("/api/v1/devices/pair", func(r chi.Router) {
-		r.Post("/", tokenHandler.PairDevice)
-=======
 	// Rutas del módulo de contactos (protegidas con JWT)
 	r.Route("/api/v1/contacts", func(r chi.Router) {
 		r.Use(authMiddleware)
@@ -105,7 +97,12 @@ func main() {
 		r.Post("/", contactHandler.Create)
 		r.Put("/{id}", contactHandler.Update)
 		r.Delete("/{id}", contactHandler.Delete)
->>>>>>> c664ebb1a1823b7279616384a833fb1eef45ca38
+	})
+
+	// Rutas del módulo de vinculación de dispositivos
+	r.Route("/api/v1/devices", func(r chi.Router) {
+		r.Post("/tokens/generate", tokenHandler.GenerateCode)
+		r.With(authMiddleware).Post("/pair", tokenHandler.PairDevice)
 	})
 
 	srv := &http.Server{

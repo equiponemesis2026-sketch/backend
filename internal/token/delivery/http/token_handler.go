@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/nemesis-project/api-nemesis/internal/infrastructure/middleware"
 	"github.com/nemesis-project/api-nemesis/internal/token/domain"
 	"github.com/nemesis-project/api-nemesis/internal/token/usecase"
 )
@@ -56,14 +57,14 @@ func (h *TokenHandler) PairDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := r.Header.Get("X-User-ID")
-	if userID == "" {
-		writeError(w, http.StatusBadRequest, "Missing X-User-ID header")
+	userID, ok := r.Context().Value(middleware.UserIDKey).(string)
+	if !ok || userID == "" {
+		writeError(w, http.StatusUnauthorized, "Missing or invalid user in token")
 		return
 	}
 
 	if _, err := uuid.Parse(userID); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid user_id format")
+		writeError(w, http.StatusUnauthorized, "Invalid user_id format")
 		return
 	}
 
