@@ -2,9 +2,10 @@ package usecase
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,15 +29,17 @@ func NewTokenUseCase(repo domain.DeviceRepository) domain.TokenUseCase {
 
 func (t *tokenUseCase) GeneratePairingCode(ctx context.Context, input domain.GenerateCodeRequest) (*domain.PairingCode, error) {
 	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	rand.Seed(time.Now().UnixNano())
 	code := "NMS-"
 	for i := 0; i < 3; i++ {
 		if i > 0 {
 			code += "-"
 		}
 		for j := 0; j < 3; j++ {
-			n := rand.Intn(len(charset))
-			code += string(charset[n])
+			n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate secure random: %w", err)
+			}
+			code += string(charset[n.Int64()])
 		}
 	}
 	expiresAt := time.Now().Add(5 * time.Minute).UTC()
