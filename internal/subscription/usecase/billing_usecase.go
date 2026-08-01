@@ -74,14 +74,15 @@ func (uc *billingUseCase) CreateCheckoutSession(ctx context.Context, userID stri
 	}
 
 	sessionParams := &stripe.CheckoutSessionParams{
-		Mode:       stripe.String(string(stripe.CheckoutSessionModeSubscription)),
-		Customer:   &stripeCustomerID,
+		Mode:             stripe.String(string(stripe.CheckoutSessionModeSubscription)),
+		Customer:         &stripeCustomerID,
+		ClientReferenceID: &userID,
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
 			{Price: &req.PriceID, Quantity: stripe.Int64(1)},
 		},
 		SuccessURL: &req.SuccessURL,
 		CancelURL:  &req.CancelURL,
-		Metadata:   map[string]string{"tier": string(tier)},
+		Metadata:   map[string]string{"tier": string(tier), "user_id": userID},
 	}
 
 	sess, err := session.New(sessionParams)
