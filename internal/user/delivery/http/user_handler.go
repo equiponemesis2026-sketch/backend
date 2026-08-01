@@ -39,6 +39,10 @@ func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
 			response.WriteError(w, http.StatusConflict, err.Error())
 			return
 		}
+		if errors.Is(err, usecase.ErrInvalidInput) {
+			response.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		response.WriteError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}

@@ -79,6 +79,7 @@ func main() {
 	r.Use(chiMiddleware.Logger)
 	r.Use(chiMiddleware.Recoverer)
 	r.Use(chiMiddleware.RequestID)
+	r.Use(middleware.CORS(cfg.CORSAllowedOrigins))
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		pingCtx, pingCancel := context.WithTimeout(r.Context(), 3*time.Second)
@@ -98,8 +99,9 @@ func main() {
 		})
 	})
 
-	// Rutas del módulo de autenticación (públicas)
+	// Rutas del módulo de autenticación (públicas, con rate limit)
 	r.Route("/api/v1/auth", func(r chi.Router) {
+		r.Use(middleware.RateLimit(10, time.Minute))
 		r.Post("/register", userHandler.Register)
 		r.Post("/login", userHandler.Login)
 	})
@@ -125,7 +127,7 @@ func main() {
 
 	// Rutas del módulo de vinculación de dispositivos
 	r.Route("/api/v1/devices", func(r chi.Router) {
-		r.Post("/tokens/generate", tokenHandler.GenerateCode)
+		r.With(authMiddleware).Post("/tokens/generate", tokenHandler.GenerateCode)
 		r.With(authMiddleware).Post("/pair", tokenHandler.PairDevice)
 	})
 

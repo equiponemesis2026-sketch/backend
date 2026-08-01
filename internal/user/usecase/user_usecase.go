@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -17,7 +19,10 @@ import (
 var (
 	ErrUserAlreadyExists  = errors.New("a user with this email already exists")
 	ErrInvalidCredentials = errors.New("invalid email or password")
+	ErrInvalidInput       = errors.New("invalid input")
 )
+
+var validate = validator.New()
 
 type userUseCase struct {
 	userRepo  domain.UserRepository
@@ -36,19 +41,27 @@ func NewUserUseCase(repo domain.UserRepository, jwtSecret string, jwtExpiry time
 
 // Register maneja la lógica de negocio para la creación y persistencia de un nuevo usuario.
 func (u *userUseCase) Register(ctx context.Context, input domain.RegisterInput) (*domain.User, error) {
-	// 1. Validar unicidad de email
+	// 1. Validar campos (email formato, password min 8, requeridos)
+	if err := validate.Struct(input); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidInput, err)
+	}
+
+	// 2. Normalizar email (lowercase + trim)
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+
+	// 3. Validar unicidad de email
 	existingUser, err := u.userRepo.FindByEmail(ctx, input.Email)
 	if err == nil && existingUser != nil {
 		return nil, ErrUserAlreadyExists
 	}
 
-	// 2. Hashear password con Bcrypt usando costo de producción (12)
+	// 4. Hashear password con Bcrypt usando costo de producción (12)
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), 12)
 	if err != nil {
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// 3. Generar ID único con prefijo de dominio 'usr_' y UUIDv4
+	// 5. Generar ID único con prefijo de dominio 'usr_' y UUIDv4
 	userID := fmt.Sprintf("usr_%s", uuid.New().String())
 
 	newUser := &domain.User{
@@ -60,12 +73,12 @@ func (u *userUseCase) Register(ctx context.Context, input domain.RegisterInput) 
 		CreatedAt: time.Now().UTC(),
 	}
 
-	// 4. Persistir registro en base de datos
+	// 6. Persistir registro en base de datos
 	if err := u.userRepo.Create(ctx, newUser); err != nil {
 		return nil, fmt.Errorf("failed to persist user: %w", err)
 	}
 
-	// 5. Sanitizar la entidad de salida limpiando credenciales sensibles
+	// 7. Sanitizar la entidad de salida limpiando credenciales sensibles
 	newUser.Password = ""
 
 	return newUser, nil
@@ -73,7 +86,8 @@ func (u *userUseCase) Register(ctx context.Context, input domain.RegisterInput) 
 
 // Login valida la existencia del usuario, verifica contraseñas y genera el token JWT firmado.
 func (u *userUseCase) Login(ctx context.Context, input domain.LoginInput) (*domain.TokenResponse, error) {
-	// 1. Obtener usuario
+	// 1. Obtener usuario (email normalizado)
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
 	user, err := u.userRepo.FindByEmail(ctx, input.Email)
 	if err != nil || user == nil {
 		return nil, ErrInvalidCredentials

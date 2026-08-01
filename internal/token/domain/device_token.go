@@ -34,7 +34,7 @@ type PairingRequest struct {
 }
 
 type GenerateCodeRequest struct {
-	UserID string `json:"user_id" binding:"required"`
+	UserID   string `json:"user_id,omitempty"`
 	Platform string `json:"platform" binding:"required"`
 }
 

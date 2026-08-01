@@ -3,19 +3,21 @@ package config
 import (
 	"log"
 	"os"
+	"strings"
 	"time"
 )
 
 type Config struct {
-	Port               string
-	MongoURI           string
-	DBName             string
-	JWTSecret          string
-	JWTExpiry          time.Duration
-	StripeKey          string
+	Port                string
+	MongoURI            string
+	DBName              string
+	JWTSecret           string
+	JWTExpiry           time.Duration
+	StripeKey           string
 	StripeWebhookSecret string
-	StripePricePro     string
+	StripePricePro      string
 	StripePriceFamiliar string
+	CORSAllowedOrigins  []string
 }
 
 func Load() *Config {
@@ -40,16 +42,28 @@ func Load() *Config {
 	}
 
 	return &Config{
-		Port:               getEnv("PORT", "8080"),
-		MongoURI:           getEnv("MONGO_URI", "mongodb://localhost:27017"),
-		DBName:             getEnv("MONGO_DB_NAME", "nemesis"),
-		JWTSecret:          jwtSecret,
-		JWTExpiry:          expiry,
-		StripeKey:          stripeKey,
+		Port:                getEnv("PORT", "8080"),
+		MongoURI:            getEnv("MONGO_URI", "mongodb://localhost:27017"),
+		DBName:              getEnv("MONGO_DB_NAME", "nemesis"),
+		JWTSecret:           jwtSecret,
+		JWTExpiry:           expiry,
+		StripeKey:           stripeKey,
 		StripeWebhookSecret: webhookSecret,
-		StripePricePro:     getEnv("STRIPE_PRICE_PRO", ""),
+		StripePricePro:      getEnv("STRIPE_PRICE_PRO", ""),
 		StripePriceFamiliar: getEnv("STRIPE_PRICE_FAMILIAR", ""),
+		CORSAllowedOrigins:  splitList(getEnv("CORS_ALLOWED_ORIGINS", "*")),
 	}
+}
+
+// splitList convierte una cadena separada por comas en un slice.
+func splitList(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func getEnv(key, fallback string) string {
