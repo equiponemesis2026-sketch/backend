@@ -22,6 +22,9 @@ import (
 	subscriptionHttp "github.com/nemesis-project/api-nemesis/internal/subscription/delivery/http"
 	subscriptionMongo "github.com/nemesis-project/api-nemesis/internal/subscription/repository/mongo"
 	subscriptionUsecase "github.com/nemesis-project/api-nemesis/internal/subscription/usecase"
+	tokenHttp "github.com/nemesis-project/api-nemesis/internal/token/delivery/http"
+	tokenRepo "github.com/nemesis-project/api-nemesis/internal/token/repository"
+	tokenUseCase "github.com/nemesis-project/api-nemesis/internal/token/usecase"
 	userHttp "github.com/nemesis-project/api-nemesis/internal/user/delivery/http"
 	userMongo "github.com/nemesis-project/api-nemesis/internal/user/repository/mongo"
 	"github.com/nemesis-project/api-nemesis/internal/user/usecase"
@@ -62,6 +65,11 @@ func main() {
 		cfg.StripePriceFamiliar,
 	)
 	billingHandler := subscriptionHttp.NewBillingHandler(billingUC)
+
+	// --- Módulo 4: Tokens de Vinculación (WearOS/NMS) ---
+	tokenRepoImpl := tokenRepo.NewDeviceRepository(db)
+	tokenUc := tokenUseCase.NewTokenUseCase(tokenRepoImpl)
+	tokenHandler := tokenHttp.NewTokenHandler(tokenUc)
 
 	// Middleware de autenticación JWT
 	authMiddleware := middleware.JWTAuth(cfg.JWTSecret)
@@ -113,6 +121,12 @@ func main() {
 			r.Post("/checkout", billingHandler.CreateCheckout)
 			r.Get("/subscription", billingHandler.GetSubscription)
 		})
+	})
+
+	// Rutas del módulo de vinculación de dispositivos
+	r.Route("/api/v1/devices", func(r chi.Router) {
+		r.Post("/tokens/generate", tokenHandler.GenerateCode)
+		r.With(authMiddleware).Post("/pair", tokenHandler.PairDevice)
 	})
 
 	srv := &http.Server{
