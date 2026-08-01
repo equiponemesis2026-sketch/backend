@@ -137,8 +137,12 @@ func TestGetAllContacts_Success(t *testing.T) {
 
 	contact1 := &domain.Contact{ID: "cnt_001", UserID: "usr_123", Name: "Maria", Phone: "555-0200"}
 	contact2 := &domain.Contact{ID: "cnt_002", UserID: "usr_123", Name: "Juan", Phone: "555-0300"}
-	repo.Create(context.Background(), contact1)
-	repo.Create(context.Background(), contact2)
+	if err := repo.Create(context.Background(), contact1); err != nil {
+		t.Fatalf("failed to seed contact1: %v", err)
+	}
+	if err := repo.Create(context.Background(), contact2); err != nil {
+		t.Fatalf("failed to seed contact2: %v", err)
+	}
 
 	contacts, err := uc.GetAll(context.Background(), "usr_123")
 	if err != nil {
@@ -166,8 +170,12 @@ func TestGetAllContacts_Empty(t *testing.T) {
 func TestGetAllContacts_ScopedByUserID(t *testing.T) {
 	uc, repo := newTestContactUseCase()
 
-	repo.Create(context.Background(), &domain.Contact{ID: "cnt_001", UserID: "usr_a", Name: "A"})
-	repo.Create(context.Background(), &domain.Contact{ID: "cnt_002", UserID: "usr_b", Name: "B"})
+	if err := repo.Create(context.Background(), &domain.Contact{ID: "cnt_001", UserID: "usr_a", Name: "A"}); err != nil {
+		t.Fatalf("failed to seed contact: %v", err)
+	}
+	if err := repo.Create(context.Background(), &domain.Contact{ID: "cnt_002", UserID: "usr_b", Name: "B"}); err != nil {
+		t.Fatalf("failed to seed contact: %v", err)
+	}
 
 	contacts, err := uc.GetAll(context.Background(), "usr_a")
 	if err != nil {
@@ -182,10 +190,12 @@ func TestGetAllContacts_ScopedByUserID(t *testing.T) {
 func TestUpdateContact_Success(t *testing.T) {
 	uc, repo := newTestContactUseCase()
 
-	repo.Create(context.Background(), &domain.Contact{
+	if err := repo.Create(context.Background(), &domain.Contact{
 		ID: "cnt_001", UserID: "usr_123", Name: "Maria",
 		Phone: "555-0200", Relationship: "familiar", CreatedAt: time.Now().UTC(),
-	})
+	}); err != nil {
+		t.Fatalf("failed to seed contact: %v", err)
+	}
 
 	name := "Maria Actualizada"
 	rel := "amiga"
@@ -223,7 +233,9 @@ func TestUpdateContact_NotFound(t *testing.T) {
 func TestDeleteContact_Success(t *testing.T) {
 	uc, repo := newTestContactUseCase()
 
-	repo.Create(context.Background(), &domain.Contact{ID: "cnt_001", UserID: "usr_123", Name: "Maria", Phone: "555-0200"})
+	if err := repo.Create(context.Background(), &domain.Contact{ID: "cnt_001", UserID: "usr_123", Name: "Maria", Phone: "555-0200"}); err != nil {
+		t.Fatalf("failed to seed contact: %v", err)
+	}
 
 	err := uc.Delete(context.Background(), "usr_123", "cnt_001")
 	if err != nil {
@@ -248,7 +260,9 @@ func TestDeleteContact_NotFound(t *testing.T) {
 func TestDeleteContact_WrongUser(t *testing.T) {
 	uc, repo := newTestContactUseCase()
 
-	repo.Create(context.Background(), &domain.Contact{ID: "cnt_001", UserID: "usr_a", Name: "Maria", Phone: "555-0200"})
+	if err := repo.Create(context.Background(), &domain.Contact{ID: "cnt_001", UserID: "usr_a", Name: "Maria", Phone: "555-0200"}); err != nil {
+		t.Fatalf("failed to seed contact: %v", err)
+	}
 
 	err := uc.Delete(context.Background(), "usr_b", "cnt_001")
 	if err != usecase.ErrContactNotFound {
