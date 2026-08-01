@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -11,6 +12,16 @@ import (
 	"github.com/nemesis-project/api-nemesis/internal/token/domain"
 	"github.com/nemesis-project/api-nemesis/internal/token/usecase"
 )
+
+// normalizeUserID valida un user_id aceptando tanto el formato con prefijo
+// "usr_" como el UUID puro, devolviendo el ID normalizado (sin prefijo).
+func normalizeUserID(raw string) (string, error) {
+	id := strings.TrimPrefix(raw, "usr_")
+	if _, err := uuid.Parse(id); err != nil {
+		return "", err
+	}
+	return id, nil
+}
 
 type TokenHandler struct {
 	uc domain.TokenUseCase
@@ -27,17 +38,27 @@ func (h *TokenHandler) GenerateCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if input.UserID == "" || input.Platform == "" {
-		writeError(w, http.StatusBadRequest, "user_id and platform are required")
+	userID, ok := r.Context().Value(middleware.UserIDKey).(string)
+	if !ok || userID == "" {
+		writeError(w, http.StatusUnauthorized, "Missing or invalid user in token")
 		return
 	}
 
-	if _, err := uuid.Parse(input.UserID); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid user_id format")
+	normalizedUserID, err := normalizeUserID(userID)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "Invalid user_id format")
 		return
 	}
 
-	pairingCode, err := h.uc.GeneratePairingCode(r.Context(), input)
+	if input.Platform == "" {
+		writeError(w, http.StatusBadRequest, "platform is required")
+		return
+	}
+
+	pairingCode, err := h.uc.GeneratePairingCode(r.Context(), domain.GenerateCodeRequest{
+		UserID:   normalizedUserID,
+		Platform: input.Platform,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to generate pairing code")
 		return
@@ -63,12 +84,13 @@ func (h *TokenHandler) PairDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := uuid.Parse(userID); err != nil {
+	normalizedUserID, err := normalizeUserID(userID)
+	if err != nil {
 		writeError(w, http.StatusUnauthorized, "Invalid user_id format")
 		return
 	}
 
-	device, err := h.uc.PairDevice(r.Context(), input, userID)
+	device, err := h.uc.PairDevice(r.Context(), input, normalizedUserID)
 	if err != nil {
 		if errors.Is(err, usecase.ErrPairingCodeExpired) {
 			writeError(w, http.StatusBadRequest, err.Error())

@@ -33,10 +33,10 @@ type UserBasic struct {
 
 // RegisterInput encapsula los datos requeridos para registrar un usuario.
 type RegisterInput struct {
-	Name     string `json:"name" binding:"required"`
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=8"`
-	Phone    string `json:"phone" binding:"required"`
+	Name     string `json:"name" validate:"required"`
+	Email    string `json:"email" validate:"required,email"`
+	Password string `json:"password" validate:"required,min=8"`
+	Phone    string `json:"phone" validate:"required"`
 }
 
 // LoginInput encapsula los datos requeridos para el inicio de sesión.
