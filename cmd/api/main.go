@@ -19,6 +19,9 @@ import (
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/config"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/database"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/middleware"
+	subscriptionHttp "github.com/nemesis-project/api-nemesis/internal/subscription/delivery/http"
+	subscriptionMongo "github.com/nemesis-project/api-nemesis/internal/subscription/repository/mongo"
+	subscriptionUsecase "github.com/nemesis-project/api-nemesis/internal/subscription/usecase"
 	userHttp "github.com/nemesis-project/api-nemesis/internal/user/delivery/http"
 	userMongo "github.com/nemesis-project/api-nemesis/internal/user/repository/mongo"
 	"github.com/nemesis-project/api-nemesis/internal/user/usecase"
@@ -48,6 +51,17 @@ func main() {
 	contactRepoImpl := contactMongo.NewContactRepository(db)
 	contactUseCase := contactUsecase.NewContactUseCase(contactRepoImpl)
 	contactHandler := contactHttp.NewContactHandler(contactUseCase)
+
+	// --- Módulo 3: Suscripciones y Facturación (Stripe) ---
+	subscriptionRepoImpl := subscriptionMongo.NewSubscriptionRepository(db)
+	billingUC := subscriptionUsecase.NewBillingUseCase(
+		subscriptionRepoImpl,
+		cfg.StripeKey,
+		cfg.StripeWebhookSecret,
+		cfg.StripePricePro,
+		cfg.StripePriceFamiliar,
+	)
+	billingHandler := subscriptionHttp.NewBillingHandler(billingUC)
 
 	// Middleware de autenticación JWT
 	authMiddleware := middleware.JWTAuth(cfg.JWTSecret)
@@ -89,6 +103,16 @@ func main() {
 		r.Post("/", contactHandler.Create)
 		r.Put("/{id}", contactHandler.Update)
 		r.Delete("/{id}", contactHandler.Delete)
+	})
+
+	// Rutas del módulo de suscripciones y facturación
+	r.Route("/api/v1/billing", func(r chi.Router) {
+		r.Post("/webhook", billingHandler.HandleWebhook)
+		r.Group(func(r chi.Router) {
+			r.Use(authMiddleware)
+			r.Post("/checkout", billingHandler.CreateCheckout)
+			r.Get("/subscription", billingHandler.GetSubscription)
+		})
 	})
 
 	srv := &http.Server{
