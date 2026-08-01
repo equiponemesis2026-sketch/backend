@@ -19,6 +19,9 @@ import (
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/config"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/database"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/middleware"
+	subscriptionHttp "github.com/nemesis-project/api-nemesis/internal/subscription/delivery/http"
+	subscriptionMongo "github.com/nemesis-project/api-nemesis/internal/subscription/repository/mongo"
+	subscriptionUsecase "github.com/nemesis-project/api-nemesis/internal/subscription/usecase"
 	tokenHttp "github.com/nemesis-project/api-nemesis/internal/token/delivery/http"
 	tokenRepo "github.com/nemesis-project/api-nemesis/internal/token/repository"
 	tokenUseCase "github.com/nemesis-project/api-nemesis/internal/token/usecase"
@@ -52,7 +55,18 @@ func main() {
 	contactUseCase := contactUsecase.NewContactUseCase(contactRepoImpl)
 	contactHandler := contactHttp.NewContactHandler(contactUseCase)
 
-	// --- Módulo 3: Tokens de Vinculación (WearOS/NMS) ---
+	// --- Módulo 3: Suscripciones y Facturación (Stripe) ---
+	subscriptionRepoImpl := subscriptionMongo.NewSubscriptionRepository(db)
+	billingUC := subscriptionUsecase.NewBillingUseCase(
+		subscriptionRepoImpl,
+		cfg.StripeKey,
+		cfg.StripeWebhookSecret,
+		cfg.StripePricePro,
+		cfg.StripePriceFamiliar,
+	)
+	billingHandler := subscriptionHttp.NewBillingHandler(billingUC)
+
+	// --- Módulo 4: Tokens de Vinculación (WearOS/NMS) ---
 	tokenRepoImpl := tokenRepo.NewDeviceRepository(db)
 	tokenUc := tokenUseCase.NewTokenUseCase(tokenRepoImpl)
 	tokenHandler := tokenHttp.NewTokenHandler(tokenUc)
@@ -97,6 +111,16 @@ func main() {
 		r.Post("/", contactHandler.Create)
 		r.Put("/{id}", contactHandler.Update)
 		r.Delete("/{id}", contactHandler.Delete)
+	})
+
+	// Rutas del módulo de suscripciones y facturación
+	r.Route("/api/v1/billing", func(r chi.Router) {
+		r.Post("/webhook", billingHandler.HandleWebhook)
+		r.Group(func(r chi.Router) {
+			r.Use(authMiddleware)
+			r.Post("/checkout", billingHandler.CreateCheckout)
+			r.Get("/subscription", billingHandler.GetSubscription)
+		})
 	})
 
 	// Rutas del módulo de vinculación de dispositivos
