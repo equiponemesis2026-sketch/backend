@@ -39,6 +39,19 @@ func (r *userRepository) FindByEmail(ctx context.Context, email string) (*domain
 	return &user, nil
 }
 
+// FindByPhone busca un usuario por su teléfono. Retorna nil si no existe.
+func (r *userRepository) FindByPhone(ctx context.Context, phone string) (*domain.User, error) {
+	var user domain.User
+	err := r.coll.FindOne(ctx, bson.M{"phone": phone}).Decode(&user)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
 // FindByID busca un usuario por su ID de negocio (ej. usr_<uuid>). Retorna nil si no existe.
 func (r *userRepository) FindByID(ctx context.Context, id string) (*domain.User, error) {
 	var user domain.User

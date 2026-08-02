@@ -19,10 +19,10 @@ type Device struct {
 }
 
 type PairingCode struct {
-	Code       string    `json:"code" bson:"code"`
-	UserID     string    `json:"user_id" bson:"user_id"`
-	ExpiresAt  time.Time `json:"expires_at" bson:"expires_at"`
-	CreatedAt  time.Time `json:"created_at" bson:"created_at"`
+	Code      string    `json:"code" bson:"code"`
+	UserID    string    `json:"user_id" bson:"user_id"`
+	ExpiresAt time.Time `json:"expires_at" bson:"expires_at"`
+	CreatedAt time.Time `json:"created_at" bson:"created_at"`
 }
 
 type PairingRequest struct {
@@ -54,6 +54,7 @@ type DeviceRepository interface {
 	FindByPairingCode(ctx context.Context, code string) (*PairingCode, error)
 	FindByID(ctx context.Context, id string) (*Device, error)
 	FindByUserID(ctx context.Context, userID string) (*Device, error)
+	FindAllDevicesByUserID(ctx context.Context, userID string) ([]*Device, error)
 	Save(ctx context.Context, device *Device) error
 	SavePairingCode(ctx context.Context, code *PairingCode) error
 	DeletePairingCode(ctx context.Context, code string) error

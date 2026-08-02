@@ -57,6 +57,21 @@ func (r *deviceRepository) FindByUserID(ctx context.Context, userID string) (*do
 	return &device, nil
 }
 
+func (r *deviceRepository) FindAllDevicesByUserID(ctx context.Context, userID string) ([]*domain.Device, error) {
+	filter := bson.M{"user_id": userID, "fcm_token": bson.M{"$ne": ""}}
+	cursor, err := r.devicesCollection.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = cursor.Close(ctx) }()
+
+	var devices []*domain.Device
+	if err := cursor.All(ctx, &devices); err != nil {
+		return nil, err
+	}
+	return devices, nil
+}
+
 func (r *deviceRepository) Save(ctx context.Context, device *domain.Device) error {
 	_, err := r.devicesCollection.InsertOne(ctx, device)
 	return err
