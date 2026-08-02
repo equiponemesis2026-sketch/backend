@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -145,7 +147,11 @@ func (uc *alertUseCase) notifyObservers(ctx context.Context, alert *domain.Alert
 		}
 		seen[contact.LinkedUserID] = struct{}{}
 
-		devices, err := uc.deviceRepo.FindAllDevicesByUserID(ctx, contact.LinkedUserID)
+		// Los devices guardan el user_id normalizado sin prefijo "usr_",
+		// mientras que LinkedUserID conserva el prefijo completo.
+		observerID := strings.TrimPrefix(contact.LinkedUserID, "usr_")
+
+		devices, err := uc.deviceRepo.FindAllDevicesByUserID(ctx, observerID)
 		if err != nil {
 			return fmt.Errorf("failed to fetch observer devices: %w", err)
 		}
@@ -159,6 +165,12 @@ func (uc *alertUseCase) notifyObservers(ctx context.Context, alert *domain.Alert
 			})
 		}
 	}
+
+	slog.Info("SOS: resolving observers",
+		"alert_id", alert.ID,
+		"linked_observers", len(seen),
+		"push_targets", len(targets),
+	)
 
 	if len(targets) == 0 {
 		return nil
