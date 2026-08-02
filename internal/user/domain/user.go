@@ -5,6 +5,19 @@ import (
 	"time"
 )
 
+// Role describe el rol inicial del usuario en Némesis.
+type Role string
+
+const (
+	RoleVictim   Role = "victim"
+	RoleObserver Role = "observer"
+)
+
+// IsValid devuelve true si el rol es uno de los permitidos.
+func (r Role) IsValid() bool {
+	return r == RoleVictim || r == RoleObserver
+}
+
 // User representa la entidad de usuario en el sistema Némesis.
 // Mantiene tags bson para MongoDB y json para serialización externa.
 type User struct {
@@ -13,6 +26,7 @@ type User struct {
 	Email           string    `json:"email" bson:"email"`
 	Password        string    `json:"password,omitempty" bson:"password"` // omitempty por seguridad
 	Phone           string    `json:"phone" bson:"phone"`
+	Role            Role      `json:"role" bson:"role"`
 	RealPINHash     string    `json:"-" bson:"real_pin_hash,omitempty"`
 	CoercionPINHash string    `json:"-" bson:"coercion_pin_hash,omitempty"`
 	CreatedAt       time.Time `json:"created_at" bson:"created_at"`
@@ -31,14 +45,17 @@ type UserBasic struct {
 	ID    string `json:"user_id"`
 	Name  string `json:"name"`
 	Email string `json:"email"`
+	Role  Role   `json:"role"`
 }
 
 // RegisterInput encapsula los datos requeridos para registrar un usuario.
+// Role es opcional: si se omite, se asigna RoleVictim por defecto.
 type RegisterInput struct {
 	Name     string `json:"name" validate:"required"`
 	Email    string `json:"email" validate:"required,email"`
 	Password string `json:"password" validate:"required,min=8"`
 	Phone    string `json:"phone" validate:"required"`
+	Role     Role   `json:"role,omitempty"`
 }
 
 // LoginInput encapsula los datos requeridos para el inicio de sesión.

@@ -2,8 +2,11 @@ package usecase_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/nemesis-project/api-nemesis/internal/user/domain"
 	"github.com/nemesis-project/api-nemesis/internal/user/usecase"
@@ -103,6 +106,56 @@ func TestRegister_Success(t *testing.T) {
 	}
 }
 
+func TestRegister_DefaultRoleIsVictim(t *testing.T) {
+	uc, _ := newTestUseCase()
+
+	user, err := uc.Register(context.Background(), domain.RegisterInput{
+		Name:     "Test User",
+		Email:    "default-role@example.com",
+		Password: "securepass123",
+		Phone:    "555-0100",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if user.Role != domain.RoleVictim {
+		t.Errorf("expected default role victim, got %q", user.Role)
+	}
+}
+
+func TestRegister_ExplicitRoleObserver(t *testing.T) {
+	uc, _ := newTestUseCase()
+
+	user, err := uc.Register(context.Background(), domain.RegisterInput{
+		Name:     "Observer User",
+		Email:    "observer@example.com",
+		Password: "securepass123",
+		Phone:    "555-0100",
+		Role:     domain.RoleObserver,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if user.Role != domain.RoleObserver {
+		t.Errorf("expected role observer, got %q", user.Role)
+	}
+}
+
+func TestRegister_InvalidRoleRejected(t *testing.T) {
+	uc, _ := newTestUseCase()
+
+	_, err := uc.Register(context.Background(), domain.RegisterInput{
+		Name:     "Bad Role",
+		Email:    "badrole@example.com",
+		Password: "securepass123",
+		Phone:    "555-0100",
+		Role:     "admin",
+	})
+	if !errors.Is(err, usecase.ErrInvalidInput) {
+		t.Errorf("expected ErrInvalidInput for invalid role, got %v", err)
+	}
+}
+
 func TestRegister_DuplicateEmail(t *testing.T) {
 	uc, _ := newTestUseCase()
 
@@ -158,6 +211,20 @@ func TestLogin_Success(t *testing.T) {
 	}
 	if tokenResp.User.Email != "login@example.com" {
 		t.Errorf("expected email login@example.com, got %q", tokenResp.User.Email)
+	}
+	if tokenResp.User.Role != domain.RoleVictim {
+		t.Errorf("expected default role victim in response, got %q", tokenResp.User.Role)
+	}
+
+	// El claim "role" debe estar presente en el JWT firmado.
+	claims := jwt.MapClaims{}
+	_, _, err = jwt.NewParser().ParseUnverified(tokenResp.AccessToken, claims)
+	if err != nil {
+		t.Fatalf("failed to parse token: %v", err)
+	}
+	roleClaim, _ := claims["role"].(string)
+	if roleClaim != string(domain.RoleVictim) {
+		t.Errorf("expected role claim victim, got %q", roleClaim)
 	}
 }
 

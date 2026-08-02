@@ -116,6 +116,13 @@ func (u *userUseCase) Register(ctx context.Context, input domain.RegisterInput) 
 		return nil, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
 
+	// 1b. Validar rol inicial (Víctima / Observador); default: Víctima
+	if input.Role == "" {
+		input.Role = domain.RoleVictim
+	} else if !input.Role.IsValid() {
+		return nil, fmt.Errorf("%w: invalid role %q", ErrInvalidInput, input.Role)
+	}
+
 	// 2. Normalizar email (lowercase + trim)
 	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
 
@@ -140,6 +147,7 @@ func (u *userUseCase) Register(ctx context.Context, input domain.RegisterInput) 
 		Email:     input.Email,
 		Password:  string(hashedPassword),
 		Phone:     input.Phone,
+		Role:      input.Role,
 		CreatedAt: time.Now().UTC(),
 	}
 
@@ -176,10 +184,17 @@ func (u *userUseCase) Login(ctx context.Context, input domain.LoginInput) (*doma
 		return nil, ErrInvalidCredentials
 	}
 
+	// 2b. Normalizar rol: usuarios legacy sin rol se tratan como Víctima
+	role := user.Role
+	if role == "" {
+		role = domain.RoleVictim
+	}
+
 	// 3. Crear Claims para el JWT
 	claims := jwt.MapClaims{
 		"sub":   user.ID,
 		"email": user.Email,
+		"role":  string(role),
 		"exp":   time.Now().Add(u.jwtExpiry).Unix(),
 		"iat":   time.Now().Unix(),
 	}
@@ -200,6 +215,7 @@ func (u *userUseCase) Login(ctx context.Context, input domain.LoginInput) (*doma
 			ID:    user.ID,
 			Name:  user.Name,
 			Email: user.Email,
+			Role:  role,
 		},
 	}
 
