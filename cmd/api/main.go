@@ -129,6 +129,7 @@ func main() {
 	r.Route("/api/v1/devices", func(r chi.Router) {
 		r.With(authMiddleware).Post("/tokens/generate", tokenHandler.GenerateCode)
 		r.With(authMiddleware).Post("/pair", tokenHandler.PairDevice)
+		r.With(authMiddleware).Post("/fcm-token", tokenHandler.RegisterFCMToken)
 	})
 
 	srv := &http.Server{

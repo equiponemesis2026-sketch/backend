@@ -38,6 +38,12 @@ type GenerateCodeRequest struct {
 	Platform string `json:"platform" binding:"required"`
 }
 
+type FCMTokenRequest struct {
+	DeviceID string `json:"device_id" binding:"required"`
+	FCMToken string `json:"fcm_token" binding:"required"`
+	Platform string `json:"platform"`
+}
+
 type TokenResponse struct {
 	Status  string `json:"status"`
 	Message string `json:"message"`
@@ -47,11 +53,15 @@ type TokenResponse struct {
 type DeviceRepository interface {
 	FindByPairingCode(ctx context.Context, code string) (*PairingCode, error)
 	FindByID(ctx context.Context, id string) (*Device, error)
+	FindByUserID(ctx context.Context, userID string) (*Device, error)
 	Save(ctx context.Context, device *Device) error
 	SavePairingCode(ctx context.Context, code *PairingCode) error
+	DeletePairingCode(ctx context.Context, code string) error
+	UpdateFCMToken(ctx context.Context, deviceID string, fcmToken string) error
 }
 
 type TokenUseCase interface {
 	GeneratePairingCode(ctx context.Context, input GenerateCodeRequest) (*PairingCode, error)
 	PairDevice(ctx context.Context, input PairingRequest, userID string) (*Device, error)
+	RegisterFCMToken(ctx context.Context, input FCMTokenRequest, userID string) error
 }

@@ -45,6 +45,18 @@ func (r *deviceRepository) FindByID(ctx context.Context, id string) (*domain.Dev
 	return &device, nil
 }
 
+func (r *deviceRepository) FindByUserID(ctx context.Context, userID string) (*domain.Device, error) {
+	var device domain.Device
+	err := r.devicesCollection.FindOne(ctx, bson.M{"user_id": userID}).Decode(&device)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &device, nil
+}
+
 func (r *deviceRepository) Save(ctx context.Context, device *domain.Device) error {
 	_, err := r.devicesCollection.InsertOne(ctx, device)
 	return err
@@ -52,5 +64,17 @@ func (r *deviceRepository) Save(ctx context.Context, device *domain.Device) erro
 
 func (r *deviceRepository) SavePairingCode(ctx context.Context, code *domain.PairingCode) error {
 	_, err := r.pairingCodesCollection.InsertOne(ctx, code)
+	return err
+}
+
+func (r *deviceRepository) DeletePairingCode(ctx context.Context, code string) error {
+	_, err := r.pairingCodesCollection.DeleteOne(ctx, bson.M{"code": code})
+	return err
+}
+
+func (r *deviceRepository) UpdateFCMToken(ctx context.Context, deviceID string, fcmToken string) error {
+	filter := bson.M{"_id": deviceID}
+	update := bson.M{"$set": bson.M{"fcm_token": fcmToken}}
+	_, err := r.devicesCollection.UpdateOne(ctx, filter, update)
 	return err
 }

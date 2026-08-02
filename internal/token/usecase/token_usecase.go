@@ -14,9 +14,11 @@ import (
 )
 
 var (
-	ErrPairingCodeExpired    = errors.New("pairing code has expired")
-	ErrPairingCodeNotFound   = errors.New("pairing code not found")
-	ErrDeviceAlreadyPaired   = errors.New("device is already paired with another user")
+	ErrPairingCodeExpired  = errors.New("pairing code has expired")
+	ErrPairingCodeNotFound = errors.New("pairing code not found")
+	ErrPairingCodeMismatch = errors.New("pairing code does not belong to this user")
+	ErrDeviceAlreadyPaired = errors.New("device is already paired with another user")
+	ErrDeviceNotFound      = errors.New("device not found")
 )
 
 type tokenUseCase struct {
@@ -71,10 +73,10 @@ func (t *tokenUseCase) PairDevice(ctx context.Context, input domain.PairingReque
 	}
 
 	if pairingCode.UserID != userID {
-		return nil, errors.New("pairing code does not belong to this user")
+		return nil, ErrPairingCodeMismatch
 	}
 
-	existingDevice, err := t.repo.FindByID(ctx, userID)
+	existingDevice, err := t.repo.FindByUserID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check existing device: %w", err)
 	}
@@ -100,5 +102,27 @@ func (t *tokenUseCase) PairDevice(ctx context.Context, input domain.PairingReque
 		return nil, fmt.Errorf("failed to save device: %w", err)
 	}
 
+	_ = t.repo.DeletePairingCode(ctx, input.PairingCode)
+
 	return newDevice, nil
+}
+
+func (t *tokenUseCase) RegisterFCMToken(ctx context.Context, input domain.FCMTokenRequest, userID string) error {
+	device, err := t.repo.FindByID(ctx, input.DeviceID)
+	if err != nil {
+		return fmt.Errorf("failed to find device: %w", err)
+	}
+	if device == nil {
+		return ErrDeviceNotFound
+	}
+
+	if device.UserID != userID {
+		return ErrDeviceNotFound
+	}
+
+	if err := t.repo.UpdateFCMToken(ctx, input.DeviceID, input.FCMToken); err != nil {
+		return fmt.Errorf("failed to update fcm token: %w", err)
+	}
+
+	return nil
 }

@@ -100,6 +100,14 @@ func (h *TokenHandler) PairDevice(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
 		}
+		if errors.Is(err, usecase.ErrPairingCodeMismatch) {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		if errors.Is(err, usecase.ErrDeviceAlreadyPaired) {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -108,6 +116,45 @@ func (h *TokenHandler) PairDevice(w http.ResponseWriter, r *http.Request) {
 		"status":  "success",
 		"message": "Device paired successfully",
 		"data":    device,
+	})
+}
+
+func (h *TokenHandler) RegisterFCMToken(w http.ResponseWriter, r *http.Request) {
+	var input domain.FCMTokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if input.DeviceID == "" || input.FCMToken == "" {
+		writeError(w, http.StatusBadRequest, "device_id and fcm_token are required")
+		return
+	}
+
+	userID, ok := r.Context().Value(middleware.UserIDKey).(string)
+	if !ok || userID == "" {
+		writeError(w, http.StatusUnauthorized, "Missing or invalid user in token")
+		return
+	}
+
+	normalizedUserID, err := normalizeUserID(userID)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "Invalid user_id format")
+		return
+	}
+
+	if err := h.uc.RegisterFCMToken(r.Context(), input, normalizedUserID); err != nil {
+		if errors.Is(err, usecase.ErrDeviceNotFound) {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "Failed to register FCM token")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "success",
+		"message": "FCM token registered successfully",
 	})
 }
 
