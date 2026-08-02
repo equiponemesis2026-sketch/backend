@@ -7,6 +7,7 @@ import (
 
 	"github.com/nemesis-project/api-nemesis/internal/contact/domain"
 	"github.com/nemesis-project/api-nemesis/internal/contact/usecase"
+	userDomain "github.com/nemesis-project/api-nemesis/internal/user/domain"
 )
 
 type mockContactRepo struct {
@@ -45,6 +46,19 @@ func (m *mockContactRepo) FindAllByUserID(_ context.Context, userID string) ([]*
 	return result, nil
 }
 
+func (m *mockContactRepo) FindAllByLinkedUserID(_ context.Context, linkedUserID string) ([]*domain.Contact, error) {
+	if m.contacts == nil {
+		return []*domain.Contact{}, nil
+	}
+	var result []*domain.Contact
+	for _, c := range m.contacts {
+		if c.LinkedUserID == linkedUserID {
+			result = append(result, c)
+		}
+	}
+	return result, nil
+}
+
 func (m *mockContactRepo) Update(_ context.Context, c *domain.Contact) error {
 	if m.contacts == nil {
 		return nil
@@ -64,14 +78,70 @@ func (m *mockContactRepo) Delete(_ context.Context, id, userID string) error {
 	return nil
 }
 
-func newTestContactUseCase() (domain.ContactUseCase, *mockContactRepo) {
+func (m *mockContactRepo) LinkContact(_ context.Context, contactID, userID, linkedUserID string) error {
+	if m.contacts == nil {
+		return nil
+	}
+	c, ok := m.contacts[contactID]
+	if !ok || c.UserID != userID {
+		return nil
+	}
+	c.LinkedUserID = linkedUserID
+	return nil
+}
+
+func (m *mockContactRepo) LinkPendingContacts(_ context.Context, email, phone, userID string) error {
+	if m.contacts == nil {
+		return nil
+	}
+	for _, c := range m.contacts {
+		if c.LinkedUserID == "" && (c.Email == email || c.Phone == phone) {
+			c.LinkedUserID = userID
+		}
+	}
+	return nil
+}
+
+type mockUserRepo struct {
+	byEmail map[string]string
+	byPhone map[string]string
+}
+
+func (m *mockUserRepo) Create(_ context.Context, _ *userDomain.User) error { return nil }
+
+func (m *mockUserRepo) FindByEmail(_ context.Context, email string) (*userDomain.User, error) {
+	if m == nil || m.byEmail == nil {
+		return nil, nil
+	}
+	if id, ok := m.byEmail[email]; ok {
+		return &userDomain.User{ID: id}, nil
+	}
+	return nil, nil
+}
+
+func (m *mockUserRepo) FindByPhone(_ context.Context, phone string) (*userDomain.User, error) {
+	if m == nil || m.byPhone == nil {
+		return nil, nil
+	}
+	if id, ok := m.byPhone[phone]; ok {
+		return &userDomain.User{ID: id}, nil
+	}
+	return nil, nil
+}
+
+func (m *mockUserRepo) FindByID(_ context.Context, _ string) (*userDomain.User, error) {
+	return nil, nil
+}
+
+func newTestContactUseCase() (domain.ContactUseCase, *mockContactRepo, *mockUserRepo) {
 	repo := &mockContactRepo{}
-	uc := usecase.NewContactUseCase(repo)
-	return uc, repo
+	userRepo := &mockUserRepo{}
+	uc := usecase.NewContactUseCase(repo, userRepo)
+	return uc, repo, userRepo
 }
 
 func TestCreateContact_Success(t *testing.T) {
-	uc, _ := newTestContactUseCase()
+	uc, _, _ := newTestContactUseCase()
 
 	input := domain.CreateContactInput{
 		Name:         "Maria",
@@ -109,7 +179,7 @@ func TestCreateContact_Success(t *testing.T) {
 }
 
 func TestCreateContact_MissingName(t *testing.T) {
-	uc, _ := newTestContactUseCase()
+	uc, _, _ := newTestContactUseCase()
 
 	_, err := uc.Create(context.Background(), "usr_123", domain.CreateContactInput{
 		Name:  "",
@@ -121,7 +191,7 @@ func TestCreateContact_MissingName(t *testing.T) {
 }
 
 func TestCreateContact_MissingPhone(t *testing.T) {
-	uc, _ := newTestContactUseCase()
+	uc, _, _ := newTestContactUseCase()
 
 	_, err := uc.Create(context.Background(), "usr_123", domain.CreateContactInput{
 		Name:  "Maria",
@@ -133,7 +203,7 @@ func TestCreateContact_MissingPhone(t *testing.T) {
 }
 
 func TestGetAllContacts_Success(t *testing.T) {
-	uc, repo := newTestContactUseCase()
+	uc, repo, _ := newTestContactUseCase()
 
 	contact1 := &domain.Contact{ID: "cnt_001", UserID: "usr_123", Name: "Maria", Phone: "555-0200"}
 	contact2 := &domain.Contact{ID: "cnt_002", UserID: "usr_123", Name: "Juan", Phone: "555-0300"}
@@ -155,7 +225,7 @@ func TestGetAllContacts_Success(t *testing.T) {
 }
 
 func TestGetAllContacts_Empty(t *testing.T) {
-	uc, _ := newTestContactUseCase()
+	uc, _, _ := newTestContactUseCase()
 
 	contacts, err := uc.GetAll(context.Background(), "usr_999")
 	if err != nil {
@@ -168,7 +238,7 @@ func TestGetAllContacts_Empty(t *testing.T) {
 }
 
 func TestGetAllContacts_ScopedByUserID(t *testing.T) {
-	uc, repo := newTestContactUseCase()
+	uc, repo, _ := newTestContactUseCase()
 
 	if err := repo.Create(context.Background(), &domain.Contact{ID: "cnt_001", UserID: "usr_a", Name: "A"}); err != nil {
 		t.Fatalf("failed to seed contact: %v", err)
@@ -188,7 +258,7 @@ func TestGetAllContacts_ScopedByUserID(t *testing.T) {
 }
 
 func TestUpdateContact_Success(t *testing.T) {
-	uc, repo := newTestContactUseCase()
+	uc, repo, _ := newTestContactUseCase()
 
 	if err := repo.Create(context.Background(), &domain.Contact{
 		ID: "cnt_001", UserID: "usr_123", Name: "Maria",
@@ -219,7 +289,7 @@ func TestUpdateContact_Success(t *testing.T) {
 }
 
 func TestUpdateContact_NotFound(t *testing.T) {
-	uc, _ := newTestContactUseCase()
+	uc, _, _ := newTestContactUseCase()
 
 	name := "New Name"
 	_, err := uc.Update(context.Background(), "usr_123", "cnt_nonexistent", domain.UpdateContactInput{
@@ -231,7 +301,7 @@ func TestUpdateContact_NotFound(t *testing.T) {
 }
 
 func TestDeleteContact_Success(t *testing.T) {
-	uc, repo := newTestContactUseCase()
+	uc, repo, _ := newTestContactUseCase()
 
 	if err := repo.Create(context.Background(), &domain.Contact{ID: "cnt_001", UserID: "usr_123", Name: "Maria", Phone: "555-0200"}); err != nil {
 		t.Fatalf("failed to seed contact: %v", err)
@@ -249,7 +319,7 @@ func TestDeleteContact_Success(t *testing.T) {
 }
 
 func TestDeleteContact_NotFound(t *testing.T) {
-	uc, _ := newTestContactUseCase()
+	uc, _, _ := newTestContactUseCase()
 
 	err := uc.Delete(context.Background(), "usr_123", "cnt_nonexistent")
 	if err != usecase.ErrContactNotFound {
@@ -258,7 +328,7 @@ func TestDeleteContact_NotFound(t *testing.T) {
 }
 
 func TestDeleteContact_WrongUser(t *testing.T) {
-	uc, repo := newTestContactUseCase()
+	uc, repo, _ := newTestContactUseCase()
 
 	if err := repo.Create(context.Background(), &domain.Contact{ID: "cnt_001", UserID: "usr_a", Name: "Maria", Phone: "555-0200"}); err != nil {
 		t.Fatalf("failed to seed contact: %v", err)

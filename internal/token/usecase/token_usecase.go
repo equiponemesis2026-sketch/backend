@@ -46,10 +46,10 @@ func (t *tokenUseCase) GeneratePairingCode(ctx context.Context, input domain.Gen
 	}
 	expiresAt := time.Now().Add(5 * time.Minute).UTC()
 	pairingCode := &domain.PairingCode{
-		Code:       code,
-		UserID:     input.UserID,
-		ExpiresAt:  expiresAt,
-		CreatedAt:  time.Now().UTC(),
+		Code:      code,
+		UserID:    input.UserID,
+		ExpiresAt: expiresAt,
+		CreatedAt: time.Now().UTC(),
 	}
 
 	if err := t.repo.SavePairingCode(ctx, pairingCode); err != nil {
@@ -93,7 +93,7 @@ func (t *tokenUseCase) PairDevice(ctx context.Context, input domain.PairingReque
 		DeviceModel: input.DeviceModel,
 		DeviceOS:    input.DeviceOS,
 		Serial:      input.Serial,
-		FCMToken:    "", 
+		FCMToken:    "",
 		PairedAt:    time.Now().UTC(),
 		CreatedAt:   time.Now().UTC(),
 	}

@@ -25,9 +25,16 @@ var (
 var validate = validator.New()
 
 type userUseCase struct {
-	userRepo  domain.UserRepository
-	jwtSecret []byte
-	jwtExpiry time.Duration
+	userRepo      domain.UserRepository
+	contactLinker ContactLinker
+	jwtSecret     []byte
+	jwtExpiry     time.Duration
+}
+
+// ContactLinker permite vincular contactos pendientes al nuevo usuario
+// cuando coincide su email/teléfono. Lo implementa el repositorio de contactos.
+type ContactLinker interface {
+	LinkPendingContacts(ctx context.Context, email string, phone string, userID string) error
 }
 
 // NewUserUseCase inicializa el caso de uso con su repositorio y parámetros JWT.
@@ -37,6 +44,11 @@ func NewUserUseCase(repo domain.UserRepository, jwtSecret string, jwtExpiry time
 		jwtSecret: []byte(jwtSecret),
 		jwtExpiry: jwtExpiry,
 	}
+}
+
+// SetContactLinker inyecta el linker de contactos pendientes (opcional).
+func (u *userUseCase) SetContactLinker(linker ContactLinker) {
+	u.contactLinker = linker
 }
 
 // Register maneja la lógica de negocio para la creación y persistencia de un nuevo usuario.
@@ -78,7 +90,14 @@ func (u *userUseCase) Register(ctx context.Context, input domain.RegisterInput) 
 		return nil, fmt.Errorf("failed to persist user: %w", err)
 	}
 
-	// 7. Sanitizar la entidad de salida limpiando credenciales sensibles
+	// 7. Backfill: vincular contactos pendientes que coincidan con email/teléfono
+	if u.contactLinker != nil {
+		if err := u.contactLinker.LinkPendingContacts(ctx, newUser.Email, newUser.Phone, newUser.ID); err != nil {
+			return nil, fmt.Errorf("failed to link pending contacts: %w", err)
+		}
+	}
+
+	// 8. Sanitizar la entidad de salida limpiando credenciales sensibles
 	newUser.Password = ""
 
 	return newUser, nil

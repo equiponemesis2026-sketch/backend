@@ -13,12 +13,16 @@ import (
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 
+	alertHttp "github.com/nemesis-project/api-nemesis/internal/alert/delivery/http"
+	alertMongo "github.com/nemesis-project/api-nemesis/internal/alert/repository/mongo"
+	alertUsecase "github.com/nemesis-project/api-nemesis/internal/alert/usecase"
 	contactHttp "github.com/nemesis-project/api-nemesis/internal/contact/delivery/http"
 	contactMongo "github.com/nemesis-project/api-nemesis/internal/contact/repository/mongo"
 	contactUsecase "github.com/nemesis-project/api-nemesis/internal/contact/usecase"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/config"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/database"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/middleware"
+	notifService "github.com/nemesis-project/api-nemesis/internal/notifications/service"
 	subscriptionHttp "github.com/nemesis-project/api-nemesis/internal/subscription/delivery/http"
 	subscriptionMongo "github.com/nemesis-project/api-nemesis/internal/subscription/repository/mongo"
 	subscriptionUsecase "github.com/nemesis-project/api-nemesis/internal/subscription/usecase"
@@ -52,8 +56,13 @@ func main() {
 
 	// --- Módulo 2: Contactos (Red de Apoyo) ---
 	contactRepoImpl := contactMongo.NewContactRepository(db)
-	contactUseCase := contactUsecase.NewContactUseCase(contactRepoImpl)
+	contactUseCase := contactUsecase.NewContactUseCase(contactRepoImpl, userRepoImpl)
 	contactHandler := contactHttp.NewContactHandler(contactUseCase)
+
+	// Backfill: al registrarse un usuario, se vinculan contactos pendientes
+	if linker, ok := userUseCase.(interface{ SetContactLinker(usecase.ContactLinker) }); ok {
+		linker.SetContactLinker(contactRepoImpl)
+	}
 
 	// --- Módulo 3: Suscripciones y Facturación (Stripe) ---
 	subscriptionRepoImpl := subscriptionMongo.NewSubscriptionRepository(db)
@@ -70,6 +79,17 @@ func main() {
 	tokenRepoImpl := tokenRepo.NewDeviceRepository(db)
 	tokenUc := tokenUseCase.NewTokenUseCase(tokenRepoImpl)
 	tokenHandler := tokenHttp.NewTokenHandler(tokenUc)
+
+	// --- Módulo 5: Motor de Alertas SOS + Notificaciones FCM ---
+	notifier, err := notifService.NewService(ctx, cfg.FirebaseServiceAccount, tokenRepoImpl)
+	if err != nil {
+		slog.Error("failed to initialize FCM service", "error", err)
+		os.Exit(1)
+	}
+
+	alertRepoImpl := alertMongo.NewAlertRepository(db)
+	alertUC := alertUsecase.NewAlertUseCase(alertRepoImpl, contactRepoImpl, tokenRepoImpl, notifier)
+	alertHandler := alertHttp.NewAlertHandler(alertUC)
 
 	// Middleware de autenticación JWT
 	authMiddleware := middleware.JWTAuth(cfg.JWTSecret)
@@ -130,6 +150,14 @@ func main() {
 		r.With(authMiddleware).Post("/tokens/generate", tokenHandler.GenerateCode)
 		r.With(authMiddleware).Post("/pair", tokenHandler.PairDevice)
 		r.With(authMiddleware).Post("/fcm-token", tokenHandler.RegisterFCMToken)
+	})
+
+	// Rutas del motor de alertas SOS (protegidas con JWT)
+	r.Route("/api/v1/alerts", func(r chi.Router) {
+		r.Use(authMiddleware)
+		r.Post("/sos", alertHandler.CreateSOS)
+		r.Get("/observing", alertHandler.GetObserving)
+		r.Get("/{id}", alertHandler.GetByID)
 	})
 
 	srv := &http.Server{

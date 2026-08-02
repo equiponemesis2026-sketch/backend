@@ -13,8 +13,8 @@ import (
 	contactDomain "github.com/nemesis-project/api-nemesis/internal/contact/domain"
 	contactUsecase "github.com/nemesis-project/api-nemesis/internal/contact/usecase"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/middleware"
-	userDomain "github.com/nemesis-project/api-nemesis/internal/user/domain"
 	userHttp "github.com/nemesis-project/api-nemesis/internal/user/delivery/http"
+	userDomain "github.com/nemesis-project/api-nemesis/internal/user/domain"
 	"github.com/nemesis-project/api-nemesis/internal/user/usecase"
 )
 
@@ -42,6 +42,10 @@ func (m *mockUserRepo) FindByEmail(_ context.Context, email string) (*userDomain
 		return nil, nil
 	}
 	return u, nil
+}
+
+func (m *mockUserRepo) FindByPhone(_ context.Context, _ string) (*userDomain.User, error) {
+	return nil, nil
 }
 
 func (m *mockUserRepo) FindByID(_ context.Context, id string) (*userDomain.User, error) {
@@ -94,6 +98,35 @@ func (m *mockContactRepo) FindAllByUserID(_ context.Context, userID string) ([]*
 	return result, nil
 }
 
+func (m *mockContactRepo) FindAllByLinkedUserID(_ context.Context, linkedUserID string) ([]*contactDomain.Contact, error) {
+	if m.contacts == nil {
+		return []*contactDomain.Contact{}, nil
+	}
+	var result []*contactDomain.Contact
+	for _, c := range m.contacts {
+		if c.LinkedUserID == linkedUserID {
+			result = append(result, c)
+		}
+	}
+	return result, nil
+}
+
+func (m *mockContactRepo) LinkContact(_ context.Context, contactID, userID, linkedUserID string) error {
+	if m.contacts == nil {
+		return nil
+	}
+	c, ok := m.contacts[contactID]
+	if !ok || c.UserID != userID {
+		return nil
+	}
+	c.LinkedUserID = linkedUserID
+	return nil
+}
+
+func (m *mockContactRepo) LinkPendingContacts(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 func (m *mockContactRepo) Update(_ context.Context, c *contactDomain.Contact) error {
 	if m.contacts == nil {
 		return nil
@@ -130,7 +163,7 @@ func newTestServer() *testServer {
 	userHandler := userHttp.NewUserHandler(userUC)
 
 	contactRepo := &mockContactRepo{}
-	contactUC := contactUsecase.NewContactUseCase(contactRepo)
+	contactUC := contactUsecase.NewContactUseCase(contactRepo, userRepo)
 	contactHandler := contactHttp.NewContactHandler(contactUC)
 
 	r := chi.NewRouter()

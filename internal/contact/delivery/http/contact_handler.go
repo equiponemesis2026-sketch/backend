@@ -109,3 +109,36 @@ func (h *ContactHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		"message": "Contact deleted successfully",
 	})
 }
+
+func (h *ContactHandler) Link(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(middleware.UserIDKey).(string)
+	contactID := chi.URLParam(r, "id")
+
+	var input struct {
+		LinkedUserID string `json:"linked_user_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		response.WriteError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if input.LinkedUserID == "" {
+		response.WriteError(w, http.StatusBadRequest, "linked_user_id is required")
+		return
+	}
+
+	contact, err := h.uc.Link(r.Context(), userID, contactID, input.LinkedUserID)
+	if err != nil {
+		if errors.Is(err, usecase.ErrContactNotFound) {
+			response.WriteError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		response.WriteError(w, http.StatusInternalServerError, "Failed to link contact")
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "success",
+		"message": "Contact linked successfully",
+		"data":    contact,
+	})
+}

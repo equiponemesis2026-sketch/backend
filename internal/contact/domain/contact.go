@@ -12,6 +12,7 @@ type Contact struct {
 	Phone        string    `json:"phone" bson:"phone"`
 	Email        string    `json:"email" bson:"email"`
 	Relationship string    `json:"relationship" bson:"relationship"`
+	LinkedUserID string    `json:"linked_user_id,omitempty" bson:"linked_user_id,omitempty"`
 	IsVerified   bool      `json:"is_verified" bson:"is_verified"`
 	CreatedAt    time.Time `json:"created_at" bson:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at" bson:"updated_at"`
@@ -35,8 +36,11 @@ type ContactRepository interface {
 	Create(ctx context.Context, contact *Contact) error
 	FindByID(ctx context.Context, id string, userID string) (*Contact, error)
 	FindAllByUserID(ctx context.Context, userID string) ([]*Contact, error)
+	FindAllByLinkedUserID(ctx context.Context, linkedUserID string) ([]*Contact, error)
 	Update(ctx context.Context, contact *Contact) error
 	Delete(ctx context.Context, id string, userID string) error
+	LinkContact(ctx context.Context, contactID string, userID string, linkedUserID string) error
+	LinkPendingContacts(ctx context.Context, email string, phone string, userID string) error
 }
 
 type ContactUseCase interface {
@@ -44,4 +48,5 @@ type ContactUseCase interface {
 	GetAll(ctx context.Context, userID string) ([]*Contact, error)
 	Update(ctx context.Context, userID string, contactID string, input UpdateContactInput) (*Contact, error)
 	Delete(ctx context.Context, userID string, contactID string) error
+	Link(ctx context.Context, userID string, contactID string, linkedUserID string) (*Contact, error)
 }

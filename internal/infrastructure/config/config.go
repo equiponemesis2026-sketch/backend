@@ -8,16 +8,17 @@ import (
 )
 
 type Config struct {
-	Port                string
-	MongoURI            string
-	DBName              string
-	JWTSecret           string
-	JWTExpiry           time.Duration
-	StripeKey           string
-	StripeWebhookSecret string
-	StripePricePro      string
-	StripePriceFamiliar string
-	CORSAllowedOrigins  []string
+	Port                   string
+	MongoURI               string
+	DBName                 string
+	JWTSecret              string
+	JWTExpiry              time.Duration
+	StripeKey              string
+	StripeWebhookSecret    string
+	StripePricePro         string
+	StripePriceFamiliar    string
+	CORSAllowedOrigins     []string
+	FirebaseServiceAccount string
 }
 
 func Load() *Config {
@@ -42,16 +43,17 @@ func Load() *Config {
 	}
 
 	return &Config{
-		Port:                getEnv("PORT", "8080"),
-		MongoURI:            getEnv("MONGO_URI", "mongodb://localhost:27017"),
-		DBName:              getEnv("MONGO_DB_NAME", "nemesis"),
-		JWTSecret:           jwtSecret,
-		JWTExpiry:           expiry,
-		StripeKey:           stripeKey,
-		StripeWebhookSecret: webhookSecret,
-		StripePricePro:      getEnv("STRIPE_PRICE_PRO", ""),
-		StripePriceFamiliar: getEnv("STRIPE_PRICE_FAMILIAR", ""),
-		CORSAllowedOrigins:  splitList(getEnv("CORS_ALLOWED_ORIGINS", "*")),
+		Port:                   getEnv("PORT", "8080"),
+		MongoURI:               getEnv("MONGO_URI", "mongodb://localhost:27017"),
+		DBName:                 getEnv("MONGO_DB_NAME", "nemesis"),
+		JWTSecret:              jwtSecret,
+		JWTExpiry:              expiry,
+		StripeKey:              stripeKey,
+		StripeWebhookSecret:    webhookSecret,
+		StripePricePro:         getEnv("STRIPE_PRICE_PRO", ""),
+		StripePriceFamiliar:    getEnv("STRIPE_PRICE_FAMILIAR", ""),
+		CORSAllowedOrigins:     splitList(getEnv("CORS_ALLOWED_ORIGINS", "*")),
+		FirebaseServiceAccount: getEnv("FIREBASE_SERVICE_ACCOUNT", ""),
 	}
 }
 
