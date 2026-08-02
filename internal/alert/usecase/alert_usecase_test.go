@@ -113,12 +113,12 @@ func TestCreateAlert_NotifiesLinkedObservers(t *testing.T) {
 		{ID: "c3", UserID: "usr_victim"}, // sin vincular
 	}
 	devices := map[string][]*deviceDomain.Device{
-		"usr_obs1": {
-			{ID: "dev_a", UserID: "usr_obs1", FCMToken: "tok_a"},
-			{ID: "dev_b", UserID: "usr_obs1", FCMToken: "tok_b"}, // segundo dispositivo
+		"obs1": { // devices guardan user_id normalizado sin prefijo
+			{ID: "dev_a", UserID: "obs1", FCMToken: "tok_a"},
+			{ID: "dev_b", UserID: "obs1", FCMToken: "tok_b"}, // segundo dispositivo
 		},
-		"usr_obs2": {
-			{ID: "dev_c", UserID: "usr_obs2", FCMToken: "tok_c"},
+		"obs2": {
+			{ID: "dev_c", UserID: "obs2", FCMToken: "tok_c"},
 		},
 	}
 
