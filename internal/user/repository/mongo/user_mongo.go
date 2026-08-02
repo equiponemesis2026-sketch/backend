@@ -64,3 +64,13 @@ func (r *userRepository) FindByID(ctx context.Context, id string) (*domain.User,
 	}
 	return &user, nil
 }
+
+// UpdateSecurityPins actualiza los hashes bcrypt de los PINs de seguridad.
+func (r *userRepository) UpdateSecurityPins(ctx context.Context, userID string, realPINHash string, coercionPINHash string) error {
+	update := bson.M{"$set": bson.M{
+		"real_pin_hash":     realPINHash,
+		"coercion_pin_hash": coercionPINHash,
+	}}
+	_, err := r.coll.UpdateOne(ctx, bson.M{"_id": userID}, update)
+	return err
+}

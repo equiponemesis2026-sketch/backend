@@ -14,7 +14,9 @@ import (
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 
 	alertHttp "github.com/nemesis-project/api-nemesis/internal/alert/delivery/http"
+	wsDelivery "github.com/nemesis-project/api-nemesis/internal/alert/delivery/ws"
 	alertMongo "github.com/nemesis-project/api-nemesis/internal/alert/repository/mongo"
+	wsHub "github.com/nemesis-project/api-nemesis/internal/alert/services/ws"
 	alertUsecase "github.com/nemesis-project/api-nemesis/internal/alert/usecase"
 	contactHttp "github.com/nemesis-project/api-nemesis/internal/contact/delivery/http"
 	contactMongo "github.com/nemesis-project/api-nemesis/internal/contact/repository/mongo"
@@ -80,16 +82,33 @@ func main() {
 	tokenUc := tokenUseCase.NewTokenUseCase(tokenRepoImpl)
 	tokenHandler := tokenHttp.NewTokenHandler(tokenUc)
 
-	// --- Módulo 5: Motor de Alertas SOS + Notificaciones FCM ---
+	// --- Módulo 5: Motor de Alertas SOS + Notificaciones FCM + Telemetría WS ---
 	notifier, err := notifService.NewService(ctx, cfg.FirebaseServiceAccount, tokenRepoImpl)
 	if err != nil {
 		slog.Error("failed to initialize FCM service", "error", err)
 		os.Exit(1)
 	}
 
+	hubCtx, hubCancel := context.WithCancel(context.Background())
+	defer hubCancel()
+	telemetryHub := wsHub.NewHub(hubCtx)
+
 	alertRepoImpl := alertMongo.NewAlertRepository(db)
-	alertUC := alertUsecase.NewAlertUseCase(alertRepoImpl, contactRepoImpl, tokenRepoImpl, notifier)
+	alertUC := alertUsecase.NewAlertUseCase(
+		alertRepoImpl,
+		contactRepoImpl,
+		tokenRepoImpl,
+		notifier,
+		userUseCase, // PinVerifier
+		telemetryHub,
+	)
 	alertHandler := alertHttp.NewAlertHandler(alertUC)
+	wsHandler := wsDelivery.NewHandler(wsDelivery.Deps{
+		Hub:         telemetryHub,
+		AlertRepo:   alertRepoImpl,
+		ContactRepo: contactRepoImpl,
+		AuthSecret:  []byte(cfg.JWTSecret),
+	})
 
 	// Middleware de autenticación JWT
 	authMiddleware := middleware.JWTAuth(cfg.JWTSecret)
@@ -156,9 +175,20 @@ func main() {
 	r.Route("/api/v1/alerts", func(r chi.Router) {
 		r.Use(authMiddleware)
 		r.Post("/sos", alertHandler.CreateSOS)
+		r.Post("/coercion", alertHandler.CreateCoercion)
+		r.Put("/{id}/resolved", alertHandler.Resolve)
 		r.Get("/observing", alertHandler.GetObserving)
 		r.Get("/{id}", alertHandler.GetByID)
 	})
+
+	// Rutas de seguridad del perfil de usuario (PINs real / coerción)
+	r.Route("/api/v1/user", func(r chi.Router) {
+		r.Use(authMiddleware)
+		r.Put("/security/pins", userHandler.SetSecurityPins)
+	})
+
+	// Streaming de telemetría en vivo (autenticación manual por token)
+	r.Get("/ws/v1/alerts/stream", wsHandler.Stream)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,

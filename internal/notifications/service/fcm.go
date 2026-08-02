@@ -87,6 +87,14 @@ func (s *fcmService) SendCriticalPush(ctx context.Context, payload notifDomain.P
 		},
 	}
 
+	if payload.Silent {
+		// Canal Android dedicado (importancia baja, sin sonido) configurado
+		// en la app; prioridad alta se mantiene para entrega inmediata.
+		msg.Android.Notification.ChannelID = payload.ChannelID
+		msg.Android.Notification.Visibility = messaging.VisibilityPrivate
+		msg.Data["silent"] = "true"
+	}
+
 	br, err := s.messaging.SendEachForMulticast(ctx, msg)
 	if err != nil {
 		return err

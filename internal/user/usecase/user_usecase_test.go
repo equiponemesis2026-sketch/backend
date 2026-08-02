@@ -37,6 +37,19 @@ func (m *mockUserRepo) FindByPhone(_ context.Context, _ string) (*domain.User, e
 	return nil, nil
 }
 
+func (m *mockUserRepo) UpdateSecurityPins(_ context.Context, userID string, realHash string, coercionHash string) error {
+	if m.users == nil {
+		return nil
+	}
+	for _, u := range m.users {
+		if u.ID == userID {
+			u.RealPINHash = realHash
+			u.CoercionPINHash = coercionHash
+		}
+	}
+	return nil
+}
+
 func (m *mockUserRepo) FindByID(_ context.Context, id string) (*domain.User, error) {
 	if m.users == nil {
 		return nil, nil
@@ -181,5 +194,120 @@ func TestLogin_UserNotFound(t *testing.T) {
 	})
 	if err != usecase.ErrInvalidCredentials {
 		t.Errorf("expected ErrInvalidCredentials, got %v", err)
+	}
+}
+
+func TestSetSecurityPins_Success(t *testing.T) {
+	uc, repo := newTestUseCase()
+
+	_, err := uc.Register(context.Background(), domain.RegisterInput{
+		Name:     "Test User",
+		Email:    "pins@example.com",
+		Password: "securepass123",
+		Phone:    "555-0100",
+	})
+	if err != nil {
+		t.Fatalf("register should succeed: %v", err)
+	}
+
+	user := repo.users["pins@example.com"]
+
+	err = uc.SetSecurityPins(context.Background(), user.ID, domain.SecurityPinsInput{
+		RealPIN:     "1234",
+		CoercionPIN: "9999",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if user.RealPINHash == "" || user.CoercionPINHash == "" {
+		t.Fatal("expected both pin hashes to be persisted")
+	}
+	if user.RealPINHash == "1234" || user.CoercionPINHash == "9999" {
+		t.Error("pins must be stored hashed, not plaintext")
+	}
+}
+
+func TestSetSecurityPins_SamePinsRejected(t *testing.T) {
+	uc, _ := newTestUseCase()
+
+	err := uc.SetSecurityPins(context.Background(), "usr_1", domain.SecurityPinsInput{
+		RealPIN:     "1234",
+		CoercionPIN: "1234",
+	})
+	if err == nil {
+		t.Error("expected error when real and coercion pins are equal")
+	}
+}
+
+func TestVerifyPin_RealAndCoercion(t *testing.T) {
+	uc, repo := newTestUseCase()
+
+	_, err := uc.Register(context.Background(), domain.RegisterInput{
+		Name:     "Test User",
+		Email:    "verify@example.com",
+		Password: "securepass123",
+		Phone:    "555-0100",
+	})
+	if err != nil {
+		t.Fatalf("register should succeed: %v", err)
+	}
+
+	user := repo.users["verify@example.com"]
+
+	err = uc.SetSecurityPins(context.Background(), user.ID, domain.SecurityPinsInput{
+		RealPIN:     "1234",
+		CoercionPIN: "9999",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	match, err := uc.VerifyPin(context.Background(), user.ID, "1234")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if match != domain.PinReal {
+		t.Errorf("expected PinReal for 1234, got %v", match)
+	}
+
+	match, err = uc.VerifyPin(context.Background(), user.ID, "9999")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if match != domain.PinCoercion {
+		t.Errorf("expected PinCoercion for 9999, got %v", match)
+	}
+
+	match, err = uc.VerifyPin(context.Background(), user.ID, "0000")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if match != domain.PinNone {
+		t.Errorf("expected PinNone for 0000, got %v", match)
+	}
+}
+
+func TestVerifyPin_UserWithoutPins(t *testing.T) {
+	uc, repo := newTestUseCase()
+
+	_, err := uc.Register(context.Background(), domain.RegisterInput{
+		Name:     "Test User",
+		Email:    "nopins@example.com",
+		Password: "securepass123",
+		Phone:    "555-0100",
+	})
+	if err != nil {
+		t.Fatalf("register should succeed: %v", err)
+	}
+
+	user := repo.users["nopins@example.com"]
+
+	match, err := uc.VerifyPin(context.Background(), user.ID, "1234")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if match != domain.PinNone {
+		t.Errorf("expected PinNone, got %v", match)
 	}
 }

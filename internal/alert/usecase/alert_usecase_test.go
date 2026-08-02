@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/nemesis-project/api-nemesis/internal/alert/domain"
+	"github.com/nemesis-project/api-nemesis/internal/alert/services/ws"
 	"github.com/nemesis-project/api-nemesis/internal/alert/usecase"
 	contactDomain "github.com/nemesis-project/api-nemesis/internal/contact/domain"
 	notifDomain "github.com/nemesis-project/api-nemesis/internal/notifications/domain"
 	deviceDomain "github.com/nemesis-project/api-nemesis/internal/token/domain"
+	userDomain "github.com/nemesis-project/api-nemesis/internal/user/domain"
 )
 
 type fakeAlertRepo struct {
@@ -33,9 +35,42 @@ func (f *fakeAlertRepo) FindByID(_ context.Context, id string) (*domain.Alert, e
 	return f.alerts[id], nil
 }
 
+func (f *fakeAlertRepo) FindActiveByUserID(_ context.Context, userID string) (*domain.Alert, error) {
+	if f.alerts == nil {
+		return nil, nil
+	}
+	var latest *domain.Alert
+	for _, a := range f.alerts {
+		if a.UserID == userID && a.Status == domain.AlertStatusActive {
+			if latest == nil || a.CreatedAt.After(latest.CreatedAt) {
+				latest = a
+			}
+		}
+	}
+	return latest, nil
+}
+
 func (f *fakeAlertRepo) FindActiveByUserIDs(_ context.Context, userIDs []string) ([]*domain.Alert, error) {
 	f.byUserIDs = userIDs
 	return f.activeResult, nil
+}
+
+func (f *fakeAlertRepo) Resolve(_ context.Context, id string) error {
+	if f.alerts != nil {
+		if a, ok := f.alerts[id]; ok {
+			a.Status = domain.AlertStatusResolved
+		}
+	}
+	return nil
+}
+
+func (f *fakeAlertRepo) SetType(_ context.Context, id string, alertType domain.AlertType) error {
+	if f.alerts != nil {
+		if a, ok := f.alerts[id]; ok {
+			a.Type = alertType
+		}
+	}
+	return nil
 }
 
 type fakeContactRepo struct {
@@ -106,7 +141,27 @@ func (f *fakeNotifier) SendCriticalPush(_ context.Context, payload notifDomain.P
 	return nil
 }
 
-func TestCreateAlert_NotifiesLinkedObservers(t *testing.T) {
+type fakePinVerifier struct {
+	result userDomain.PinMatch
+	err    error
+}
+
+func (f *fakePinVerifier) VerifyPin(_ context.Context, _ string, _ string) (userDomain.PinMatch, error) {
+	return f.result, f.err
+}
+
+func newTestUC(
+	alertRepo *fakeAlertRepo,
+	contactRepo *fakeContactRepo,
+	deviceRepo *fakeDeviceRepo,
+	notifier *fakeNotifier,
+	pinVerifier *fakePinVerifier,
+) domain.AlertUseCase {
+	hub := ws.NewHub(context.Background())
+	return usecase.NewAlertUseCase(alertRepo, contactRepo, deviceRepo, notifier, pinVerifier, hub)
+}
+
+func TestCreateSOS_NotifiesLinkedObservers(t *testing.T) {
 	contacts := []*contactDomain.Contact{
 		{ID: "c1", UserID: "usr_victim", LinkedUserID: "usr_obs1"},
 		{ID: "c2", UserID: "usr_victim", LinkedUserID: "usr_obs2"},
@@ -126,12 +181,13 @@ func TestCreateAlert_NotifiesLinkedObservers(t *testing.T) {
 	contactRepo := &fakeContactRepo{contacts: contacts}
 	deviceRepo := &fakeDeviceRepo{devices: devices}
 	notifier := &fakeNotifier{}
-	uc := usecase.NewAlertUseCase(alertRepo, contactRepo, deviceRepo, notifier)
+	uc := newTestUC(alertRepo, contactRepo, deviceRepo, notifier, &fakePinVerifier{})
 
-	alert, err := uc.CreateAlert(context.Background(), "usr_victim", domain.CreateAlertInput{
-		Type:      domain.AlertTypeSOS,
-		Latitude:  19.4326,
-		Longitude: -99.1332,
+	alert, err := uc.CreateSOS(context.Background(), "usr_victim", domain.SOSInput{
+		Latitude:     19.4326,
+		Longitude:    -99.1332,
+		BatteryLevel: 85,
+		Speed:        12.5,
 	})
 
 	if err != nil {
@@ -139,6 +195,12 @@ func TestCreateAlert_NotifiesLinkedObservers(t *testing.T) {
 	}
 	if alert == nil {
 		t.Fatal("expected alert, got nil")
+	}
+	if alert.Type != domain.AlertTypeSOS {
+		t.Errorf("expected type sos, got %s", alert.Type)
+	}
+	if alert.BatteryLevel != 85 {
+		t.Errorf("expected battery_level 85, got %d", alert.BatteryLevel)
 	}
 	if alertRepo.alerts[alert.ID] == nil {
 		t.Error("alert was not persisted")
@@ -152,24 +214,156 @@ func TestCreateAlert_NotifiesLinkedObservers(t *testing.T) {
 	if notifier.lastP.Type != "sos" {
 		t.Errorf("expected payload type sos, got %s", notifier.lastP.Type)
 	}
+	if notifier.lastP.Silent {
+		t.Error("SOS push should not be silent")
+	}
 }
 
-func TestCreateAlert_NoLinkedObservers_NoPush(t *testing.T) {
+func TestCreateSOS_NoLinkedObservers_NoPush(t *testing.T) {
 	contactRepo := &fakeContactRepo{contacts: []*contactDomain.Contact{
 		{ID: "c1", UserID: "usr_victim"}, // sin vinculo
 	}}
 	alertRepo := &fakeAlertRepo{}
 	deviceRepo := &fakeDeviceRepo{}
 	notifier := &fakeNotifier{}
-	uc := usecase.NewAlertUseCase(alertRepo, contactRepo, deviceRepo, notifier)
+	uc := newTestUC(alertRepo, contactRepo, deviceRepo, notifier, &fakePinVerifier{})
 
-	if _, err := uc.CreateAlert(context.Background(), "usr_victim", domain.CreateAlertInput{
-		Type: domain.AlertTypeSOS,
-	}); err != nil {
+	if _, err := uc.CreateSOS(context.Background(), "usr_victim", domain.SOSInput{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if notifier.calls != 0 {
 		t.Errorf("expected no notifier calls, got %d", notifier.calls)
+	}
+}
+
+func TestCreateCoercion_RealPin_ResolvesActiveAlert(t *testing.T) {
+	alertRepo := &fakeAlertRepo{alerts: map[string]*domain.Alert{
+		"alt_1": {ID: "alt_1", UserID: "usr_victim", Type: domain.AlertTypeSOS, Status: domain.AlertStatusActive},
+	}}
+	contactRepo := &fakeContactRepo{}
+	deviceRepo := &fakeDeviceRepo{}
+	notifier := &fakeNotifier{}
+	uc := newTestUC(alertRepo, contactRepo, deviceRepo, notifier, &fakePinVerifier{result: userDomain.PinReal})
+
+	alert, err := uc.CreateCoercion(context.Background(), "usr_victim", domain.CoercionInput{
+		PIN: "1234",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if alert.Status != domain.AlertStatusResolved {
+		t.Errorf("expected resolved status, got %s", alert.Status)
+	}
+	if notifier.calls != 0 {
+		t.Errorf("real pin resolution should not notify observers, got %d calls", notifier.calls)
+	}
+}
+
+func TestCreateCoercion_CoercionPin_EscalatesAndSilentPush(t *testing.T) {
+	alertRepo := &fakeAlertRepo{alerts: map[string]*domain.Alert{
+		"alt_1": {ID: "alt_1", UserID: "usr_victim", Type: domain.AlertTypeSOS, Status: domain.AlertStatusActive},
+	}}
+	contactRepo := &fakeContactRepo{contacts: []*contactDomain.Contact{
+		{ID: "c1", UserID: "usr_victim", LinkedUserID: "usr_obs1"},
+	}}
+	deviceRepo := &fakeDeviceRepo{devices: map[string][]*deviceDomain.Device{
+		"obs1": {{ID: "dev_a", UserID: "obs1", FCMToken: "tok_a"}},
+	}}
+	notifier := &fakeNotifier{}
+	uc := newTestUC(alertRepo, contactRepo, deviceRepo, notifier, &fakePinVerifier{result: userDomain.PinCoercion})
+
+	alert, err := uc.CreateCoercion(context.Background(), "usr_victim", domain.CoercionInput{
+		PIN: "9999",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if alert.ID != "alt_1" {
+		t.Errorf("expected same alert id alt_1, got %s", alert.ID)
+	}
+	if alert.Type != domain.AlertTypeCoercion {
+		t.Errorf("expected type escalated to coercion, got %s", alert.Type)
+	}
+	if alert.Status != domain.AlertStatusActive {
+		t.Errorf("coercion must remain active, got %s", alert.Status)
+	}
+	if notifier.calls != 1 {
+		t.Fatalf("expected 1 notifier call, got %d", notifier.calls)
+	}
+	if !notifier.lastP.Silent {
+		t.Error("coercion push must be silent")
+	}
+	if notifier.lastP.ChannelID != "coercion_alerts" {
+		t.Errorf("expected channel coercion_alerts, got %s", notifier.lastP.ChannelID)
+	}
+}
+
+func TestCreateCoercion_InvalidPin_Rejected(t *testing.T) {
+	alertRepo := &fakeAlertRepo{}
+	contactRepo := &fakeContactRepo{}
+	deviceRepo := &fakeDeviceRepo{}
+	notifier := &fakeNotifier{}
+	uc := newTestUC(alertRepo, contactRepo, deviceRepo, notifier, &fakePinVerifier{result: userDomain.PinNone})
+
+	if _, err := uc.CreateCoercion(context.Background(), "usr_victim", domain.CoercionInput{PIN: "0000"}); err != usecase.ErrInvalidPin {
+		t.Errorf("expected ErrInvalidPin, got %v", err)
+	}
+}
+
+func TestCreateCoercion_Coercion_NoActiveAlert_CreatesNew(t *testing.T) {
+	alertRepo := &fakeAlertRepo{}
+	contactRepo := &fakeContactRepo{}
+	deviceRepo := &fakeDeviceRepo{}
+	notifier := &fakeNotifier{}
+	uc := newTestUC(alertRepo, contactRepo, deviceRepo, notifier, &fakePinVerifier{result: userDomain.PinCoercion})
+
+	alert, err := uc.CreateCoercion(context.Background(), "usr_victim", domain.CoercionInput{
+		PIN:      "9999",
+		Latitude: 19.43,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if alert.Type != domain.AlertTypeCoercion {
+		t.Errorf("expected coercion type, got %s", alert.Type)
+	}
+	if alertRepo.alerts[alert.ID] == nil {
+		t.Error("new coercion alert was not persisted")
+	}
+}
+
+func TestResolveAlert_Success(t *testing.T) {
+	alertRepo := &fakeAlertRepo{alerts: map[string]*domain.Alert{
+		"alt_1": {ID: "alt_1", UserID: "usr_victim", Type: domain.AlertTypeSOS, Status: domain.AlertStatusActive},
+	}}
+	contactRepo := &fakeContactRepo{}
+	deviceRepo := &fakeDeviceRepo{}
+	notifier := &fakeNotifier{}
+	uc := newTestUC(alertRepo, contactRepo, deviceRepo, notifier, &fakePinVerifier{})
+
+	alert, err := uc.ResolveAlert(context.Background(), "alt_1", "usr_victim")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if alert.Status != domain.AlertStatusResolved {
+		t.Errorf("expected resolved, got %s", alert.Status)
+	}
+	if alert.ResolvedAt == nil {
+		t.Error("expected resolved_at to be set")
+	}
+}
+
+func TestResolveAlert_DeniesNonOwner(t *testing.T) {
+	alertRepo := &fakeAlertRepo{alerts: map[string]*domain.Alert{
+		"alt_1": {ID: "alt_1", UserID: "usr_victim", Type: domain.AlertTypeSOS, Status: domain.AlertStatusActive},
+	}}
+	contactRepo := &fakeContactRepo{}
+	deviceRepo := &fakeDeviceRepo{}
+	notifier := &fakeNotifier{}
+	uc := newTestUC(alertRepo, contactRepo, deviceRepo, notifier, &fakePinVerifier{})
+
+	if _, err := uc.ResolveAlert(context.Background(), "alt_1", "usr_outsider"); err != usecase.ErrAlertNotFound {
+		t.Errorf("expected ErrAlertNotFound, got %v", err)
 	}
 }
 
@@ -183,7 +377,7 @@ func TestGetObserving_QueriesLinkedVictims(t *testing.T) {
 	contactRepo := &fakeContactRepo{linkedResult: linked}
 	deviceRepo := &fakeDeviceRepo{}
 	notifier := &fakeNotifier{}
-	uc := usecase.NewAlertUseCase(alertRepo, contactRepo, deviceRepo, notifier)
+	uc := newTestUC(alertRepo, contactRepo, deviceRepo, notifier, &fakePinVerifier{})
 
 	alerts, err := uc.GetObserving(context.Background(), "usr_obs")
 	if err != nil {
@@ -204,7 +398,7 @@ func TestGetByID_DeniesNonObserver(t *testing.T) {
 	contactRepo := &fakeContactRepo{linkedResult: nil} // el viewer no está vinculado
 	deviceRepo := &fakeDeviceRepo{}
 	notifier := &fakeNotifier{}
-	uc := usecase.NewAlertUseCase(alertRepo, contactRepo, deviceRepo, notifier)
+	uc := newTestUC(alertRepo, contactRepo, deviceRepo, notifier, &fakePinVerifier{})
 
 	if _, err := uc.GetByID(context.Background(), "alt_1", "usr_outsider"); err == nil {
 		t.Error("expected error for non-victim, non-observer, got nil")

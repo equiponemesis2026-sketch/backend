@@ -19,6 +19,8 @@ type PushPayload struct {
 	Type      string
 	Latitude  float64
 	Longitude float64
+	Silent    bool   // push silencioso: sin sonido/vibración, prioridad alta
+	ChannelID string // canal Android para alertas silenciosas (coercion_alerts)
 }
 
 // PushNotifier define el contrato para enviar notificaciones push críticas.

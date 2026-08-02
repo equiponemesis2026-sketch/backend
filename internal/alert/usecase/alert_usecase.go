@@ -11,56 +11,71 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/nemesis-project/api-nemesis/internal/alert/domain"
+	wsHub "github.com/nemesis-project/api-nemesis/internal/alert/services/ws"
 	contactDomain "github.com/nemesis-project/api-nemesis/internal/contact/domain"
 	notifDomain "github.com/nemesis-project/api-nemesis/internal/notifications/domain"
 	deviceDomain "github.com/nemesis-project/api-nemesis/internal/token/domain"
+	userDomain "github.com/nemesis-project/api-nemesis/internal/user/domain"
 )
 
 var (
 	ErrAlertNotFound    = errors.New("alert not found")
 	ErrAlertTypeInvalid = errors.New("invalid alert type")
+	ErrInvalidPin       = errors.New("invalid pin")
+	ErrNoActiveAlert    = errors.New("no active alert")
 )
+
+// PinVerifier permite validar el PIN ingresado por la víctima.
+type PinVerifier interface {
+	VerifyPin(ctx context.Context, userID string, pin string) (userDomain.PinMatch, error)
+}
+
+// TelemetryHub abstrae el hub de WebSocket para el usecase.
+type TelemetryHub interface {
+	OpenChannel(alertID string)
+	Close() // no usado directamente; se cierra por el app lifecycle
+}
 
 type alertUseCase struct {
 	alertRepo   domain.AlertRepository
 	contactRepo contactDomain.ContactRepository
 	deviceRepo  deviceDomain.DeviceRepository
 	notifier    notifDomain.PushNotifier
+	pinVerifier PinVerifier
+	hub         *wsHub.Hub
 }
 
+// NewAlertUseCase inicializa el caso de uso con todas sus dependencias.
 func NewAlertUseCase(
 	alertRepo domain.AlertRepository,
 	contactRepo contactDomain.ContactRepository,
 	deviceRepo deviceDomain.DeviceRepository,
 	notifier notifDomain.PushNotifier,
+	pinVerifier PinVerifier,
+	hub *wsHub.Hub,
 ) domain.AlertUseCase {
 	return &alertUseCase{
 		alertRepo:   alertRepo,
 		contactRepo: contactRepo,
 		deviceRepo:  deviceRepo,
 		notifier:    notifier,
+		pinVerifier: pinVerifier,
+		hub:         hub,
 	}
 }
 
-// CreateAlert persiste la alerta y dispara push crítico a todos los
-// observadores vinculados (multicast FCM a todos sus dispositivos).
-func (uc *alertUseCase) CreateAlert(ctx context.Context, victimID string, input domain.CreateAlertInput) (*domain.Alert, error) {
-	if input.Type == "" {
-		input.Type = domain.AlertTypeSOS
-	}
-	if input.Type != domain.AlertTypeSOS &&
-		input.Type != domain.AlertTypeCoercion &&
-		input.Type != domain.AlertTypeAI {
-		return nil, ErrAlertTypeInvalid
-	}
-
+// CreateSOS registra una alerta SOS activa, abre su canal de telemetría y
+// notifica a los observadores vinculados por FCM multicast.
+func (uc *alertUseCase) CreateSOS(ctx context.Context, victimID string, input domain.SOSInput) (*domain.Alert, error) {
 	alert := &domain.Alert{
 		ID:            fmt.Sprintf("alt_%s", uuid.New().String()),
 		UserID:        victimID,
-		Type:          input.Type,
+		Type:          domain.AlertTypeSOS,
 		Status:        domain.AlertStatusActive,
 		Latitude:      input.Latitude,
 		Longitude:     input.Longitude,
+		BatteryLevel:  input.BatteryLevel,
+		Speed:         input.Speed,
 		TriggerSource: input.TriggerSource,
 		CreatedAt:     time.Now().UTC(),
 	}
@@ -69,9 +84,106 @@ func (uc *alertUseCase) CreateAlert(ctx context.Context, victimID string, input 
 		return nil, fmt.Errorf("failed to persist alert: %w", err)
 	}
 
-	if err := uc.notifyObservers(ctx, alert); err != nil {
+	uc.hub.OpenChannel(alert.ID)
+
+	if err := uc.notifyObservers(ctx, alert, false); err != nil {
 		return nil, fmt.Errorf("failed to notify observers: %w", err)
 	}
+
+	return alert, nil
+}
+
+// CreateCoercion gestiona la entrada de PIN bajo coacción. El endpoint
+// siempre responde éxito de forma idéntica, pero el comportamiento difiere:
+//   - PIN real   -> resuelve la alerta activa (peligro pasó / falsa alarma).
+//   - PIN coerción -> NO apaga nada: escala la alerta a "coercion", enciende
+//     la telemetría WS y despacha push silencioso de máxima prioridad.
+//   - PIN inválido -> error (el handler responde de forma genérica).
+func (uc *alertUseCase) CreateCoercion(ctx context.Context, victimID string, input domain.CoercionInput) (*domain.Alert, error) {
+	match, err := uc.pinVerifier.VerifyPin(ctx, victimID, input.PIN)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify pin: %w", err)
+	}
+
+	if match == userDomain.PinReal {
+		active, err := uc.alertRepo.FindActiveByUserID(ctx, victimID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch active alert: %w", err)
+		}
+		if active == nil {
+			return nil, ErrNoActiveAlert
+		}
+		return uc.ResolveAlert(ctx, active.ID, victimID)
+	}
+
+	if match != userDomain.PinCoercion {
+		return nil, ErrInvalidPin
+	}
+
+	// Escalar la alerta activa a coercion (mantener mismo alert_id y canal WS).
+	alert, err := uc.alertRepo.FindActiveByUserID(ctx, victimID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch active alert: %w", err)
+	}
+
+	if alert == nil {
+		alert = &domain.Alert{
+			ID:           fmt.Sprintf("alt_%s", uuid.New().String()),
+			UserID:       victimID,
+			Type:         domain.AlertTypeCoercion,
+			Status:       domain.AlertStatusActive,
+			Latitude:     input.Latitude,
+			Longitude:    input.Longitude,
+			BatteryLevel: input.BatteryLevel,
+			CreatedAt:    time.Now().UTC(),
+		}
+		if err := uc.alertRepo.Create(ctx, alert); err != nil {
+			return nil, fmt.Errorf("failed to persist alert: %w", err)
+		}
+	} else {
+		if err := uc.alertRepo.SetType(ctx, alert.ID, domain.AlertTypeCoercion); err != nil {
+			return nil, fmt.Errorf("failed to escalate alert: %w", err)
+		}
+		alert.Type = domain.AlertTypeCoercion
+		if input.Latitude != 0 || input.Longitude != 0 {
+			alert.Latitude = input.Latitude
+			alert.Longitude = input.Longitude
+		}
+		if input.BatteryLevel > 0 {
+			alert.BatteryLevel = input.BatteryLevel
+		}
+	}
+
+	uc.hub.OpenChannel(alert.ID)
+
+	if err := uc.notifyObservers(ctx, alert, true); err != nil {
+		return nil, fmt.Errorf("failed to notify observers: %w", err)
+	}
+
+	return alert, nil
+}
+
+// ResolveAlert resuelve la alerta, cierra su canal de telemetría y notifica
+// a los observadores que la emergencia terminó.
+func (uc *alertUseCase) ResolveAlert(ctx context.Context, alertID string, userID string) (*domain.Alert, error) {
+	alert, err := uc.alertRepo.FindByID(ctx, alertID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch alert: %w", err)
+	}
+	if alert == nil {
+		return nil, ErrAlertNotFound
+	}
+	if alert.UserID != userID {
+		return nil, ErrAlertNotFound
+	}
+
+	if err := uc.alertRepo.Resolve(ctx, alertID); err != nil {
+		return nil, fmt.Errorf("failed to resolve alert: %w", err)
+	}
+
+	now := time.Now().UTC()
+	alert.Status = domain.AlertStatusResolved
+	alert.ResolvedAt = &now
 
 	return alert, nil
 }
@@ -120,19 +232,29 @@ func (uc *alertUseCase) GetObserving(ctx context.Context, observerID string) ([]
 }
 
 // notifyObservers resuelve la red de apoyo y envía el push multicast.
-func (uc *alertUseCase) notifyObservers(ctx context.Context, alert *domain.Alert) error {
+// Si silent es true, el push se despacha como silencioso (canal propio).
+func (uc *alertUseCase) notifyObservers(ctx context.Context, alert *domain.Alert, silent bool) error {
 	contacts, err := uc.contactRepo.FindAllByUserID(ctx, alert.UserID)
 	if err != nil {
 		return fmt.Errorf("failed to fetch contacts: %w", err)
 	}
 
+	title := "ALERTA SOS"
+	body := "Emergencia activa en tu red de apoyo. Ábrelo ahora."
+	if alert.Type == domain.AlertTypeCoercion {
+		title = "Código Rojo"
+		body = "Tu ser querido está bajo coacción. Emergencia silenciosa activa."
+	}
+
 	payload := notifDomain.PushPayload{
-		Title:     "ALERTA SOS",
-		Body:      "Emergencia activa en tu red de apoyo. Ábrelo ahora.",
+		Title:     title,
+		Body:      body,
 		AlertID:   alert.ID,
 		Type:      string(alert.Type),
 		Latitude:  alert.Latitude,
 		Longitude: alert.Longitude,
+		Silent:    silent,
+		ChannelID: "coercion_alerts",
 	}
 
 	seen := make(map[string]struct{})
@@ -168,8 +290,10 @@ func (uc *alertUseCase) notifyObservers(ctx context.Context, alert *domain.Alert
 
 	slog.Info("SOS: resolving observers",
 		"alert_id", alert.ID,
+		"type", alert.Type,
 		"linked_observers", len(seen),
 		"push_targets", len(targets),
+		"silent", silent,
 	)
 
 	if len(targets) == 0 {

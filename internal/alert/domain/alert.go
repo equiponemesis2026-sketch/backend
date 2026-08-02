@@ -30,29 +30,57 @@ type Alert struct {
 	Status        AlertStatus `json:"status" bson:"status"`
 	Latitude      float64     `json:"latitude" bson:"latitude"`
 	Longitude     float64     `json:"longitude" bson:"longitude"`
+	BatteryLevel  int         `json:"battery_level,omitempty" bson:"battery_level,omitempty"`
+	Speed         float64     `json:"speed,omitempty" bson:"speed,omitempty"`
 	TriggerSource string      `json:"trigger_source" bson:"trigger_source"`
 	CreatedAt     time.Time   `json:"created_at" bson:"created_at"`
 	ResolvedAt    *time.Time  `json:"resolved_at,omitempty" bson:"resolved_at,omitempty"`
 }
 
-// CreateAlertInput encapsula los datos de una alerta SOS entrante.
-type CreateAlertInput struct {
-	Type          AlertType `json:"type"`
-	Latitude      float64   `json:"latitude"`
-	Longitude     float64   `json:"longitude"`
-	TriggerSource string    `json:"trigger_source"`
+// SOSInput encapsula los datos de una alerta SOS entrante desde el
+// smartwatch o la app móvil.
+type SOSInput struct {
+	Latitude      float64 `json:"latitude"`
+	Longitude     float64 `json:"longitude"`
+	BatteryLevel  int     `json:"battery_level"`
+	Speed         float64 `json:"speed"`
+	TriggerSource string  `json:"trigger_source"`
+}
+
+// CoercionInput encapsula los datos de la entrada de PIN bajo coacción.
+type CoercionInput struct {
+	PIN          string  `json:"pin"`
+	Latitude     float64 `json:"latitude"`
+	Longitude    float64 `json:"longitude"`
+	BatteryLevel int     `json:"battery_level"`
+}
+
+// TelemetryPacket representa un paquete de telemetría GPS en vivo enviado
+// por el emisor (smartwatch) y retransmitido a los observadores.
+type TelemetryPacket struct {
+	AlertID      string  `json:"alert_id"`
+	Latitude     float64 `json:"latitude"`
+	Longitude    float64 `json:"longitude"`
+	Speed        float64 `json:"speed"`
+	BatteryLevel int     `json:"battery_level"`
+	Timestamp    int64   `json:"timestamp"`
 }
 
 // AlertRepository define el contrato de persistencia para alertas.
 type AlertRepository interface {
 	Create(ctx context.Context, alert *Alert) error
 	FindByID(ctx context.Context, id string) (*Alert, error)
+	FindActiveByUserID(ctx context.Context, userID string) (*Alert, error)
 	FindActiveByUserIDs(ctx context.Context, userIDs []string) ([]*Alert, error)
+	Resolve(ctx context.Context, id string) error
+	SetType(ctx context.Context, id string, alertType AlertType) error
 }
 
 // AlertUseCase define la lógica de negocio del motor de alertas.
 type AlertUseCase interface {
-	CreateAlert(ctx context.Context, victimID string, input CreateAlertInput) (*Alert, error)
+	CreateSOS(ctx context.Context, victimID string, input SOSInput) (*Alert, error)
+	CreateCoercion(ctx context.Context, victimID string, input CoercionInput) (*Alert, error)
+	ResolveAlert(ctx context.Context, alertID string, userID string) (*Alert, error)
 	GetByID(ctx context.Context, id string, viewerID string) (*Alert, error)
 	GetObserving(ctx context.Context, observerID string) ([]*Alert, error)
 }
