@@ -37,6 +37,10 @@ type ContactRepository interface {
 	FindByID(ctx context.Context, id string, userID string) (*Contact, error)
 	FindAllByUserID(ctx context.Context, userID string) ([]*Contact, error)
 	FindAllByLinkedUserID(ctx context.Context, linkedUserID string) ([]*Contact, error)
+	FindAllPendingByLinkedUserID(ctx context.Context, linkedUserID string) ([]*Contact, error)
+	FindByIDForLinkedUser(ctx context.Context, id string, linkedUserID string) (*Contact, error)
+	SetVerified(ctx context.Context, contactID string, linkedUserID string, verified bool) (bool, error)
+	UnlinkContact(ctx context.Context, contactID string, linkedUserID string) error
 	Update(ctx context.Context, contact *Contact) error
 	Delete(ctx context.Context, id string, userID string) error
 	LinkContact(ctx context.Context, contactID string, userID string, linkedUserID string) error
@@ -49,4 +53,7 @@ type ContactUseCase interface {
 	Update(ctx context.Context, userID string, contactID string, input UpdateContactInput) (*Contact, error)
 	Delete(ctx context.Context, userID string, contactID string) error
 	Link(ctx context.Context, userID string, contactID string, linkedUserID string) (*Contact, error)
+	GetPending(ctx context.Context, userID string) ([]*Contact, error)
+	AcceptLink(ctx context.Context, contactID string, userID string) (*Contact, error)
+	RejectLink(ctx context.Context, contactID string, userID string) error
 }

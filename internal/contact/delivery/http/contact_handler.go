@@ -142,3 +142,61 @@ func (h *ContactHandler) Link(w http.ResponseWriter, r *http.Request) {
 		"data":    contact,
 	})
 }
+
+// GetPending lista las solicitudes de vínculo pendientes de aceptación del
+// usuario observador autenticado.
+func (h *ContactHandler) GetPending(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(middleware.UserIDKey).(string)
+
+	contacts, err := h.uc.GetPending(r.Context(), userID)
+	if err != nil {
+		response.WriteError(w, http.StatusInternalServerError, "Failed to fetch pending contacts")
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "success",
+		"message": "Pending contacts retrieved successfully",
+		"data":    contacts,
+	})
+}
+
+// AcceptLink permite al usuario vinculado aceptar la solicitud y convertirse
+// en observador verificado.
+func (h *ContactHandler) AcceptLink(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(middleware.UserIDKey).(string)
+	contactID := chi.URLParam(r, "id")
+
+	contact, err := h.uc.AcceptLink(r.Context(), contactID, userID)
+	if err != nil {
+		if errors.Is(err, usecase.ErrContactNotFound) {
+			response.WriteError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		response.WriteError(w, http.StatusInternalServerError, "Failed to accept contact")
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "success",
+		"message": "Contact request accepted",
+		"data":    contact,
+	})
+}
+
+// RejectLink permite al usuario vinculado rechazar la solicitud y desvincularse
+// sin eliminar el contacto de la víctima.
+func (h *ContactHandler) RejectLink(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(middleware.UserIDKey).(string)
+	contactID := chi.URLParam(r, "id")
+
+	if err := h.uc.RejectLink(r.Context(), contactID, userID); err != nil {
+		response.WriteError(w, http.StatusInternalServerError, "Failed to reject contact")
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "success",
+		"message": "Contact request rejected",
+	})
+}

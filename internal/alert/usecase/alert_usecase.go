@@ -87,7 +87,9 @@ func (uc *alertUseCase) CreateSOS(ctx context.Context, victimID string, input do
 	uc.hub.OpenChannel(alert.ID)
 
 	if err := uc.notifyObservers(ctx, alert, false); err != nil {
-		return nil, fmt.Errorf("failed to notify observers: %w", err)
+		// Best-effort: la alerta ya quedó persistida y el canal abierto.
+		// Un fallo del push no debe reportar error a la víctima.
+		slog.Warn("alert: push notification failed after SOS persisted", "alert_id", alert.ID, "error", err)
 	}
 
 	return alert, nil
@@ -157,7 +159,8 @@ func (uc *alertUseCase) CreateCoercion(ctx context.Context, victimID string, inp
 	uc.hub.OpenChannel(alert.ID)
 
 	if err := uc.notifyObservers(ctx, alert, true); err != nil {
-		return nil, fmt.Errorf("failed to notify observers: %w", err)
+		// Best-effort: la escalada a coercion ya quedó persistida.
+		slog.Warn("alert: push notification failed after coercion persisted", "alert_id", alert.ID, "error", err)
 	}
 
 	return alert, nil
@@ -207,7 +210,7 @@ func (uc *alertUseCase) GetByID(ctx context.Context, id string, viewerID string)
 		return nil, fmt.Errorf("failed to fetch observer contacts: %w", err)
 	}
 	for _, c := range contacts {
-		if c.UserID == alert.UserID {
+		if c.IsVerified && c.UserID == alert.UserID {
 			return alert, nil
 		}
 	}
@@ -225,7 +228,9 @@ func (uc *alertUseCase) GetObserving(ctx context.Context, observerID string) ([]
 
 	victimIDs := make([]string, 0, len(contacts))
 	for _, c := range contacts {
-		victimIDs = append(victimIDs, c.UserID)
+		if c.IsVerified {
+			victimIDs = append(victimIDs, c.UserID)
+		}
 	}
 
 	return uc.alertRepo.FindActiveByUserIDs(ctx, victimIDs)
@@ -261,7 +266,7 @@ func (uc *alertUseCase) notifyObservers(ctx context.Context, alert *domain.Alert
 	var targets []notifDomain.DeviceTarget
 
 	for _, contact := range contacts {
-		if contact.LinkedUserID == "" {
+		if !contact.IsVerified || contact.LinkedUserID == "" {
 			continue
 		}
 		if _, dup := seen[contact.LinkedUserID]; dup {

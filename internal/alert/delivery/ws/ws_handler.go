@@ -59,6 +59,9 @@ func (h *Handler) Stream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		// TODO(producción): fijar los orígenes reales del dashboard web en vez
+		// de permitir cualquier Origin. El token JWT es por header (no cookies),
+		// por lo que el riesgo de CSRF clásico es bajo, pero conviene acotarlo.
 		OriginPatterns: []string{"*"},
 	})
 	if err != nil {
@@ -71,17 +74,23 @@ func (h *Handler) Stream(w http.ResponseWriter, r *http.Request) {
 	client.Run()
 }
 
-// authenticate extrae y valida el user_id del JWT (query `token` o header).
+// authenticate extrae y valida el user_id del JWT. Prioriza la cabecera
+// `Authorization: Bearer` (no queda en logs de proxy ni en el historial del
+// navegador); acepta `?token=` como respaldo para clientes que no pueden
+// enviar cabeceras personalizadas (p.ej. WebSockets del navegador).
 func (h *Handler) authenticate(r *http.Request) (string, error) {
-	tokenStr := r.URL.Query().Get("token")
-	if tokenStr == "" {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader != "" {
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
-				tokenStr = parts[1]
-			}
+	tokenStr := ""
+
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "" {
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+			tokenStr = parts[1]
 		}
+	}
+
+	if tokenStr == "" {
+		tokenStr = r.URL.Query().Get("token")
 	}
 	if tokenStr == "" {
 		return "", errUnauthorized
@@ -106,14 +115,16 @@ func (h *Handler) resolveRole(ctx context.Context, userID string) (wsHub.Role, [
 		return wsHub.RoleEmitter, []string{own.ID}, nil
 	}
 
-	// Receptor: observador vinculado a víctimas con alerta activa.
+	// Receptor: observador vinculado y verificado a víctimas con alerta activa.
 	contacts, err := h.deps.ContactRepo.FindAllByLinkedUserID(ctx, userID)
 	if err != nil {
 		return wsHub.RoleReceiver, nil, err
 	}
 	victimIDs := make([]string, 0, len(contacts))
 	for _, c := range contacts {
-		victimIDs = append(victimIDs, c.UserID)
+		if c.IsVerified {
+			victimIDs = append(victimIDs, c.UserID)
+		}
 	}
 	if len(victimIDs) == 0 {
 		return wsHub.RoleReceiver, nil, nil

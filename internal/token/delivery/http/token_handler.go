@@ -11,6 +11,7 @@ import (
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/middleware"
 	"github.com/nemesis-project/api-nemesis/internal/token/domain"
 	"github.com/nemesis-project/api-nemesis/internal/token/usecase"
+	"github.com/nemesis-project/api-nemesis/pkg/response"
 )
 
 // normalizeUserID valida un user_id aceptando tanto el formato con prefijo
@@ -34,24 +35,24 @@ func NewTokenHandler(uc domain.TokenUseCase) *TokenHandler {
 func (h *TokenHandler) GenerateCode(w http.ResponseWriter, r *http.Request) {
 	var input domain.GenerateCodeRequest
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid request body")
+		response.WriteError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	userID, ok := r.Context().Value(middleware.UserIDKey).(string)
 	if !ok || userID == "" {
-		writeError(w, http.StatusUnauthorized, "Missing or invalid user in token")
+		response.WriteError(w, http.StatusUnauthorized, "Missing or invalid user in token")
 		return
 	}
 
 	normalizedUserID, err := normalizeUserID(userID)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Invalid user_id format")
+		response.WriteError(w, http.StatusUnauthorized, "Invalid user_id format")
 		return
 	}
 
 	if input.Platform == "" {
-		writeError(w, http.StatusBadRequest, "platform is required")
+		response.WriteError(w, http.StatusBadRequest, "platform is required")
 		return
 	}
 
@@ -60,11 +61,11 @@ func (h *TokenHandler) GenerateCode(w http.ResponseWriter, r *http.Request) {
 		Platform: input.Platform,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to generate pairing code")
+		response.WriteError(w, http.StatusInternalServerError, "Failed to generate pairing code")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "success",
 		"message": "Pairing code generated",
 		"data":    pairingCode,
@@ -74,45 +75,45 @@ func (h *TokenHandler) GenerateCode(w http.ResponseWriter, r *http.Request) {
 func (h *TokenHandler) PairDevice(w http.ResponseWriter, r *http.Request) {
 	var input domain.PairingRequest
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid request body")
+		response.WriteError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	userID, ok := r.Context().Value(middleware.UserIDKey).(string)
 	if !ok || userID == "" {
-		writeError(w, http.StatusUnauthorized, "Missing or invalid user in token")
+		response.WriteError(w, http.StatusUnauthorized, "Missing or invalid user in token")
 		return
 	}
 
 	normalizedUserID, err := normalizeUserID(userID)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Invalid user_id format")
+		response.WriteError(w, http.StatusUnauthorized, "Invalid user_id format")
 		return
 	}
 
 	device, err := h.uc.PairDevice(r.Context(), input, normalizedUserID)
 	if err != nil {
 		if errors.Is(err, usecase.ErrPairingCodeExpired) {
-			writeError(w, http.StatusBadRequest, err.Error())
+			response.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		if errors.Is(err, usecase.ErrPairingCodeNotFound) {
-			writeError(w, http.StatusNotFound, err.Error())
+			response.WriteError(w, http.StatusNotFound, err.Error())
 			return
 		}
 		if errors.Is(err, usecase.ErrPairingCodeMismatch) {
-			writeError(w, http.StatusForbidden, err.Error())
+			response.WriteError(w, http.StatusForbidden, err.Error())
 			return
 		}
 		if errors.Is(err, usecase.ErrDeviceAlreadyPaired) {
-			writeError(w, http.StatusConflict, err.Error())
+			response.WriteError(w, http.StatusConflict, err.Error())
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		response.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "success",
 		"message": "Device paired successfully",
 		"data":    device,
@@ -122,51 +123,38 @@ func (h *TokenHandler) PairDevice(w http.ResponseWriter, r *http.Request) {
 func (h *TokenHandler) RegisterFCMToken(w http.ResponseWriter, r *http.Request) {
 	var input domain.FCMTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid request body")
+		response.WriteError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	if input.DeviceID == "" || input.FCMToken == "" {
-		writeError(w, http.StatusBadRequest, "device_id and fcm_token are required")
+		response.WriteError(w, http.StatusBadRequest, "device_id and fcm_token are required")
 		return
 	}
 
 	userID, ok := r.Context().Value(middleware.UserIDKey).(string)
 	if !ok || userID == "" {
-		writeError(w, http.StatusUnauthorized, "Missing or invalid user in token")
+		response.WriteError(w, http.StatusUnauthorized, "Missing or invalid user in token")
 		return
 	}
 
 	normalizedUserID, err := normalizeUserID(userID)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Invalid user_id format")
+		response.WriteError(w, http.StatusUnauthorized, "Invalid user_id format")
 		return
 	}
 
 	if err := h.uc.RegisterFCMToken(r.Context(), input, normalizedUserID); err != nil {
 		if errors.Is(err, usecase.ErrDeviceNotFound) {
-			writeError(w, http.StatusNotFound, err.Error())
+			response.WriteError(w, http.StatusNotFound, err.Error())
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "Failed to register FCM token")
+		response.WriteError(w, http.StatusInternalServerError, "Failed to register FCM token")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "success",
 		"message": "FCM token registered successfully",
-	})
-}
-
-func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
-}
-
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{
-		"status":  "error",
-		"message": message,
 	})
 }
