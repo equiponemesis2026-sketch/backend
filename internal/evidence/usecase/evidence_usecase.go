@@ -93,6 +93,7 @@ func (uc *evidenceUseCase) Generate(ctx context.Context, alertID string, viewerI
 			AlertID:        alert.ID,
 			Type:           alert.Type,
 			TriggerSource:  alert.TriggerSource,
+			HeartRate:      alert.HeartRate,
 			UserID:         alert.UserID,
 			StartLatitude:  alert.Latitude,
 			StartLongitude: alert.Longitude,

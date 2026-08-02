@@ -216,6 +216,7 @@ func TestCreateSOS_NotifiesLinkedObservers(t *testing.T) {
 		Longitude:    -99.1332,
 		BatteryLevel: 85,
 		Speed:        12.5,
+		HeartRate:    142,
 	})
 
 	if err != nil {
@@ -229,6 +230,9 @@ func TestCreateSOS_NotifiesLinkedObservers(t *testing.T) {
 	}
 	if alert.BatteryLevel != 85 {
 		t.Errorf("expected battery_level 85, got %d", alert.BatteryLevel)
+	}
+	if alert.HeartRate != 142 {
+		t.Errorf("expected heart_rate 142, got %d", alert.HeartRate)
 	}
 	if alertRepo.alerts[alert.ID] == nil {
 		t.Error("alert was not persisted")
