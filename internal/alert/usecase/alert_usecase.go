@@ -77,6 +77,7 @@ func (uc *alertUseCase) CreateSOS(ctx context.Context, victimID string, input do
 		BatteryLevel:  input.BatteryLevel,
 		Speed:         input.Speed,
 		TriggerSource: input.TriggerSource,
+		HeartRate:     input.HeartRate,
 		CreatedAt:     time.Now().UTC(),
 	}
 

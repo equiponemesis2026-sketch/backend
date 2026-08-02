@@ -27,6 +27,7 @@ type AlertMetadata struct {
 	AlertID        string                `json:"alert_id" bson:"alert_id"`
 	Type           alertDomain.AlertType `json:"type" bson:"type"`
 	TriggerSource  string                `json:"trigger_source" bson:"trigger_source"`
+	HeartRate      int                   `json:"heart_rate,omitempty" bson:"heart_rate,omitempty"`
 	UserID         string                `json:"user_id" bson:"user_id"`
 	StartLatitude  float64               `json:"start_latitude" bson:"start_latitude"`
 	StartLongitude float64               `json:"start_longitude" bson:"start_longitude"`

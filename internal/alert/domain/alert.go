@@ -33,6 +33,7 @@ type Alert struct {
 	BatteryLevel     int         `json:"battery_level,omitempty" bson:"battery_level,omitempty"`
 	Speed            float64     `json:"speed,omitempty" bson:"speed,omitempty"`
 	TriggerSource    string      `json:"trigger_source" bson:"trigger_source"`
+	HeartRate        int         `json:"heart_rate,omitempty" bson:"heart_rate,omitempty"`
 	RiskScore        float64     `json:"risk_score,omitempty" bson:"risk_score,omitempty"`
 	DistressDetected bool        `json:"distress_detected" bson:"distress_detected"`
 	CreatedAt        time.Time   `json:"created_at" bson:"created_at"`
@@ -40,13 +41,17 @@ type Alert struct {
 }
 
 // SOSInput encapsula los datos de una alerta SOS entrante desde el
-// smartwatch o la app móvil.
+// smartwatch o la app móvil. La decisión de disparar la alerta (p. ej. un
+// incremento de ritmo cardíaco por encima del umbral del wearable) la toma
+// el dispositivo; HeartRate solo registra el valor detectado en ese momento
+// para el expediente forense y para auditar falsos positivos.
 type SOSInput struct {
 	Latitude      float64 `json:"latitude"`
 	Longitude     float64 `json:"longitude"`
 	BatteryLevel  int     `json:"battery_level"`
 	Speed         float64 `json:"speed"`
 	TriggerSource string  `json:"trigger_source"`
+	HeartRate     int     `json:"heart_rate,omitempty"`
 }
 
 // CoercionInput encapsula los datos de la entrada de PIN bajo coacción.
