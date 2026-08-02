@@ -56,7 +56,7 @@ func TestHealthEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
@@ -79,7 +79,7 @@ func TestRegister_EmptyFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -96,7 +96,7 @@ func TestFullContactFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("register failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201 on register, got %d", resp.StatusCode)
@@ -108,7 +108,7 @@ func TestFullContactFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 on login, got %d", resp.StatusCode)
@@ -130,7 +130,7 @@ func TestFullContactFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create contact failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201 on create contact, got %d: %s", resp.StatusCode, readBody(t, resp)["message"])
@@ -151,7 +151,7 @@ func TestFullContactFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list contacts failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 on list contacts, got %d", resp.StatusCode)
@@ -169,7 +169,7 @@ func TestFullContactFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update contact failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 on update, got %d: %s", resp.StatusCode, readBody(t, resp)["message"])
@@ -192,7 +192,7 @@ func TestFullContactFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("delete contact failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 on delete, got %d", resp.StatusCode)
@@ -203,7 +203,7 @@ func TestFullContactFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list contacts after delete failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	listAfterResp := readBody(t, resp)
 	contactsAfter, _ := listAfterResp["data"].([]interface{})
@@ -232,10 +232,9 @@ func TestContactsUnauthorized(t *testing.T) {
 		if err != nil {
 			t.Fatalf("request to %s %s failed: %v", ep.method, ep.path, err)
 		}
-		resp.Body.Close()
+		func() { _ = resp.Body.Close() }()
 
-		if resp.StatusCode != http.StatusUnauthorized {
-			t.Errorf("expected 401 for %s %s, got %d", ep.method, ep.path, resp.StatusCode)
+		if resp.StatusCode != http.StatusUnauthorized {			t.Errorf("expected 401 for %s %s, got %d", ep.method, ep.path, resp.StatusCode)
 		}
 	}
 }
@@ -250,14 +249,14 @@ func TestUpdateContact_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("register failed: %v", err)
 	}
-	resp.Body.Close()
+	func() { _ = resp.Body.Close() }()
 
 	resp, err = request(http.MethodPost, s.URL+"/api/v1/auth/login", `{"email":"notfound@test.com","password":"12345678"}`)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
 	loginResp := readBody(t, resp)
-	resp.Body.Close()
+	func() { _ = resp.Body.Close() }()
 
 	data := loginResp["data"].(map[string]interface{})
 	token := data["access_token"].(string)
@@ -266,7 +265,7 @@ func TestUpdateContact_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", resp.StatusCode)
@@ -282,14 +281,14 @@ func TestDeleteContact_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("register failed: %v", err)
 	}
-	resp.Body.Close()
+	func() { _ = resp.Body.Close() }()
 
 	resp, err = request(http.MethodPost, s.URL+"/api/v1/auth/login", `{"email":"delnotfound@test.com","password":"12345678"}`)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
 	loginResp := readBody(t, resp)
-	resp.Body.Close()
+	func() { _ = resp.Body.Close() }()
 
 	data := loginResp["data"].(map[string]interface{})
 	token := data["access_token"].(string)
@@ -298,7 +297,7 @@ func TestDeleteContact_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("delete request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", resp.StatusCode)
