@@ -73,6 +73,17 @@ func (r *alertRepository) SetType(ctx context.Context, id string, alertType doma
 	return err
 }
 
+// UpdateRiskMetrics actualiza las métricas de riesgo del incidente según el
+// análisis de tensión vocal.
+func (r *alertRepository) UpdateRiskMetrics(ctx context.Context, id string, score float64, distress bool) error {
+	update := bson.M{"$set": bson.M{
+		"risk_score":        score,
+		"distress_detected": distress,
+	}}
+	_, err := r.coll.UpdateOne(ctx, bson.M{"_id": id}, update)
+	return err
+}
+
 func (r *alertRepository) FindActiveByUserIDs(ctx context.Context, userIDs []string) ([]*domain.Alert, error) {
 	if len(userIDs) == 0 {
 		return []*domain.Alert{}, nil

@@ -14,7 +14,7 @@ type contactRepository struct {
 	coll *mongo.Collection
 }
 
-func NewContactRepository(db *mongo.Database) domain.ContactRepository {
+func NewContactRepository(db *mongo.Database) *contactRepository {
 	return &contactRepository{
 		coll: db.Collection("contacts"),
 	}
@@ -136,4 +136,19 @@ func (r *contactRepository) Update(ctx context.Context, contact *domain.Contact)
 func (r *contactRepository) Delete(ctx context.Context, id string, userID string) error {
 	_, err := r.coll.DeleteOne(ctx, bson.M{"_id": id, "user_id": userID})
 	return err
+}
+
+// IsObserverVerified devuelve true si `observerID` tiene un contacto
+// verificado con la víctima `victimID` (usado por el reporte forense).
+func (r *contactRepository) IsObserverVerified(ctx context.Context, observerID string, victimID string) (bool, error) {
+	filter := bson.M{
+		"linked_user_id": observerID,
+		"user_id":        victimID,
+		"is_verified":    true,
+	}
+	count, err := r.coll.CountDocuments(ctx, filter)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

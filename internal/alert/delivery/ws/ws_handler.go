@@ -23,6 +23,7 @@ type Deps struct {
 	Hub         *wsHub.Hub
 	AlertRepo   alertDomain.AlertRepository
 	ContactRepo contactDomain.ContactRepository
+	Telemetry   alertDomain.TelemetryRepository
 	AuthSecret  []byte
 }
 
@@ -69,7 +70,7 @@ func (h *Handler) Stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := wsHub.NewClient(h.deps.Hub, conn, userID, role, alertIDs)
+	client := wsHub.NewClient(h.deps.Hub, conn, userID, role, alertIDs, h.deps.Telemetry)
 	slog.Info("ws: client connected", "user_id", userID, "role", role, "alerts", len(alertIDs))
 	client.Run()
 }

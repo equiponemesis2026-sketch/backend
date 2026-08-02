@@ -81,6 +81,16 @@ func (f *fakeAlertRepo) SetType(_ context.Context, id string, alertType domain.A
 	return nil
 }
 
+func (f *fakeAlertRepo) UpdateRiskMetrics(_ context.Context, id string, score float64, distress bool) error {
+	if f.alerts != nil {
+		if a, ok := f.alerts[id]; ok {
+			a.RiskScore = score
+			a.DistressDetected = distress
+		}
+	}
+	return nil
+}
+
 type fakeContactRepo struct {
 	contacts       []*contactDomain.Contact // para FindAllByUserID
 	linkedResult   []*contactDomain.Contact

@@ -24,17 +24,19 @@ const (
 
 // Alert representa una emergencia activada por una víctima.
 type Alert struct {
-	ID            string      `json:"alert_id" bson:"_id"`
-	UserID        string      `json:"user_id" bson:"user_id"`
-	Type          AlertType   `json:"type" bson:"type"`
-	Status        AlertStatus `json:"status" bson:"status"`
-	Latitude      float64     `json:"latitude" bson:"latitude"`
-	Longitude     float64     `json:"longitude" bson:"longitude"`
-	BatteryLevel  int         `json:"battery_level,omitempty" bson:"battery_level,omitempty"`
-	Speed         float64     `json:"speed,omitempty" bson:"speed,omitempty"`
-	TriggerSource string      `json:"trigger_source" bson:"trigger_source"`
-	CreatedAt     time.Time   `json:"created_at" bson:"created_at"`
-	ResolvedAt    *time.Time  `json:"resolved_at,omitempty" bson:"resolved_at,omitempty"`
+	ID               string      `json:"alert_id" bson:"_id"`
+	UserID           string      `json:"user_id" bson:"user_id"`
+	Type             AlertType   `json:"type" bson:"type"`
+	Status           AlertStatus `json:"status" bson:"status"`
+	Latitude         float64     `json:"latitude" bson:"latitude"`
+	Longitude        float64     `json:"longitude" bson:"longitude"`
+	BatteryLevel     int         `json:"battery_level,omitempty" bson:"battery_level,omitempty"`
+	Speed            float64     `json:"speed,omitempty" bson:"speed,omitempty"`
+	TriggerSource    string      `json:"trigger_source" bson:"trigger_source"`
+	RiskScore        float64     `json:"risk_score,omitempty" bson:"risk_score,omitempty"`
+	DistressDetected bool        `json:"distress_detected" bson:"distress_detected"`
+	CreatedAt        time.Time   `json:"created_at" bson:"created_at"`
+	ResolvedAt       *time.Time  `json:"resolved_at,omitempty" bson:"resolved_at,omitempty"`
 }
 
 // SOSInput encapsula los datos de una alerta SOS entrante desde el
@@ -74,6 +76,7 @@ type AlertRepository interface {
 	FindActiveByUserIDs(ctx context.Context, userIDs []string) ([]*Alert, error)
 	Resolve(ctx context.Context, id string) error
 	SetType(ctx context.Context, id string, alertType AlertType) error
+	UpdateRiskMetrics(ctx context.Context, id string, score float64, distress bool) error
 }
 
 // AlertUseCase define la lógica de negocio del motor de alertas.

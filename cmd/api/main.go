@@ -13,14 +13,21 @@ import (
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 
+	aiServices "github.com/nemesis-project/api-nemesis/internal/ai_processing/services"
 	alertHttp "github.com/nemesis-project/api-nemesis/internal/alert/delivery/http"
 	wsDelivery "github.com/nemesis-project/api-nemesis/internal/alert/delivery/ws"
 	alertMongo "github.com/nemesis-project/api-nemesis/internal/alert/repository/mongo"
 	wsHub "github.com/nemesis-project/api-nemesis/internal/alert/services/ws"
 	alertUsecase "github.com/nemesis-project/api-nemesis/internal/alert/usecase"
+	audioHttp "github.com/nemesis-project/api-nemesis/internal/audio/delivery/http"
+	audioMongo "github.com/nemesis-project/api-nemesis/internal/audio/repository/mongo"
+	audioUsecase "github.com/nemesis-project/api-nemesis/internal/audio/usecase"
 	contactHttp "github.com/nemesis-project/api-nemesis/internal/contact/delivery/http"
 	contactMongo "github.com/nemesis-project/api-nemesis/internal/contact/repository/mongo"
 	contactUsecase "github.com/nemesis-project/api-nemesis/internal/contact/usecase"
+	evidenceHttp "github.com/nemesis-project/api-nemesis/internal/evidence/delivery/http"
+	evidenceMongo "github.com/nemesis-project/api-nemesis/internal/evidence/repository/mongo"
+	evidenceUsecase "github.com/nemesis-project/api-nemesis/internal/evidence/usecase"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/config"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/database"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/middleware"
@@ -113,12 +120,38 @@ func main() {
 		telemetryHub,
 	)
 	alertHandler := alertHttp.NewAlertHandler(alertUC)
+	telemetryRepo := alertMongo.NewTelemetryRepository(db)
 	wsHandler := wsDelivery.NewHandler(wsDelivery.Deps{
 		Hub:         telemetryHub,
 		AlertRepo:   alertRepoImpl,
 		ContactRepo: contactRepoImpl,
+		Telemetry:   telemetryRepo,
 		AuthSecret:  []byte(cfg.JWTSecret),
 	})
+
+	// --- Módulo 6: Ingesta de audio en tiempo real + Análisis vocal ---
+	audioRepoImpl := audioMongo.NewAudioChunkRepository(db)
+	vocalAnalyzer := aiServices.NewWav2Vec2Analyzer(cfg.StressCriticalThreshold, cfg.StressEmotionalThreshold)
+	audioUC := audioUsecase.NewAudioUseCase(
+		audioRepoImpl,
+		alertRepoImpl,
+		alertRepoImpl,
+		vocalAnalyzer,
+		cfg.AIWorkerCount,
+		cfg.AudioMaxChunkBytes,
+	)
+	audioHandler := audioHttp.NewAudioHandler(audioUC)
+
+	// --- Módulo 7: Reporte forense post-incidente ---
+	evidenceRepoImpl := evidenceMongo.NewEvidenceReportRepository(db)
+	evidenceUC := evidenceUsecase.NewEvidenceUseCase(
+		alertRepoImpl,
+		telemetryRepo,
+		audioRepoImpl,
+		evidenceRepoImpl,
+		contactRepoImpl,
+	)
+	evidenceHandler := evidenceHttp.NewEvidenceHandler(evidenceUC)
 
 	// Middleware de autenticación JWT
 	authMiddleware := middleware.JWTAuth(cfg.JWTSecret)
@@ -198,6 +231,18 @@ func main() {
 	r.Route("/api/v1/user", func(r chi.Router) {
 		r.Use(authMiddleware)
 		r.Put("/security/pins", userHandler.SetSecurityPins)
+	})
+
+	// Rutas de ingesta de audio en tiempo real (protegidas con JWT)
+	r.Route("/api/v1/audio", func(r chi.Router) {
+		r.Use(authMiddleware)
+		r.Post("/stream-chunk", audioHandler.StreamChunk)
+	})
+
+	// Rutas del expediente forense post-incidente (protegidas con JWT)
+	r.Route("/api/v1/evidence", func(r chi.Router) {
+		r.Use(authMiddleware)
+		r.Get("/report/{alert_id}", evidenceHandler.GetReport)
 	})
 
 	// Streaming de telemetría en vivo (autenticación manual por token)

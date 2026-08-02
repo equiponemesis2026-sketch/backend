@@ -3,22 +3,27 @@ package config
 import (
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
 
 type Config struct {
-	Port                   string
-	MongoURI               string
-	DBName                 string
-	JWTSecret              string
-	JWTExpiry              time.Duration
-	StripeKey              string
-	StripeWebhookSecret    string
-	StripePricePro         string
-	StripePriceFamiliar    string
-	CORSAllowedOrigins     []string
-	FirebaseServiceAccount string
+	Port                     string
+	MongoURI                 string
+	DBName                   string
+	JWTSecret                string
+	JWTExpiry                time.Duration
+	StripeKey                string
+	StripeWebhookSecret      string
+	StripePricePro           string
+	StripePriceFamiliar      string
+	CORSAllowedOrigins       []string
+	FirebaseServiceAccount   string
+	AudioMaxChunkBytes       int
+	StressCriticalThreshold  float64
+	StressEmotionalThreshold float64
+	AIWorkerCount            int
 }
 
 func Load() *Config {
@@ -43,17 +48,21 @@ func Load() *Config {
 	}
 
 	return &Config{
-		Port:                   getEnv("PORT", "8080"),
-		MongoURI:               getEnv("MONGO_URI", "mongodb://localhost:27017"),
-		DBName:                 getEnv("MONGO_DB_NAME", "nemesis"),
-		JWTSecret:              jwtSecret,
-		JWTExpiry:              expiry,
-		StripeKey:              stripeKey,
-		StripeWebhookSecret:    webhookSecret,
-		StripePricePro:         getEnv("STRIPE_PRICE_PRO", ""),
-		StripePriceFamiliar:    getEnv("STRIPE_PRICE_FAMILIAR", ""),
-		CORSAllowedOrigins:     splitList(getEnv("CORS_ALLOWED_ORIGINS", "*")),
-		FirebaseServiceAccount: getEnv("FIREBASE_SERVICE_ACCOUNT", ""),
+		Port:                     getEnv("PORT", "8080"),
+		MongoURI:                 getEnv("MONGO_URI", "mongodb://localhost:27017"),
+		DBName:                   getEnv("MONGO_DB_NAME", "nemesis"),
+		JWTSecret:                jwtSecret,
+		JWTExpiry:                expiry,
+		StripeKey:                stripeKey,
+		StripeWebhookSecret:      webhookSecret,
+		StripePricePro:           getEnv("STRIPE_PRICE_PRO", ""),
+		StripePriceFamiliar:      getEnv("STRIPE_PRICE_FAMILIAR", ""),
+		CORSAllowedOrigins:       splitList(getEnv("CORS_ALLOWED_ORIGINS", "*")),
+		FirebaseServiceAccount:   getEnv("FIREBASE_SERVICE_ACCOUNT", ""),
+		AudioMaxChunkBytes:       getEnvInt("AUDIO_MAX_CHUNK_BYTES", 1<<20),
+		StressCriticalThreshold:  getEnvFloat("STRESS_CRITICAL_THRESHOLD", 0.85),
+		StressEmotionalThreshold: getEnvFloat("STRESS_EMOTIONAL_THRESHOLD", 0.6),
+		AIWorkerCount:            getEnvInt("AI_WORKER_COUNT", 4),
 	}
 }
 
@@ -71,6 +80,26 @@ func splitList(s string) []string {
 func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+// getEnvInt parsea una variable de entorno entera con fallback.
+func getEnvInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return fallback
+}
+
+// getEnvFloat parsea una variable de entorno flotante con fallback.
+func getEnvFloat(key string, fallback float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
 	}
 	return fallback
 }
