@@ -65,6 +65,49 @@ func (r *contactRepository) FindAllByLinkedUserID(ctx context.Context, linkedUse
 	return contacts, nil
 }
 
+func (r *contactRepository) FindAllPendingByLinkedUserID(ctx context.Context, linkedUserID string) ([]*domain.Contact, error) {
+	cursor, err := r.coll.Find(ctx, bson.M{"linked_user_id": linkedUserID, "is_verified": false})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = cursor.Close(ctx) }()
+
+	var contacts []*domain.Contact
+	if err := cursor.All(ctx, &contacts); err != nil {
+		return nil, err
+	}
+	return contacts, nil
+}
+
+func (r *contactRepository) FindByIDForLinkedUser(ctx context.Context, id string, linkedUserID string) (*domain.Contact, error) {
+	var contact domain.Contact
+	err := r.coll.FindOne(ctx, bson.M{"_id": id, "linked_user_id": linkedUserID}).Decode(&contact)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &contact, nil
+}
+
+func (r *contactRepository) SetVerified(ctx context.Context, contactID string, linkedUserID string, verified bool) (bool, error) {
+	filter := bson.M{"_id": contactID, "linked_user_id": linkedUserID}
+	update := bson.M{"$set": bson.M{"is_verified": verified, "updated_at": time.Now().UTC()}}
+	res, err := r.coll.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return false, err
+	}
+	return res.ModifiedCount > 0, nil
+}
+
+func (r *contactRepository) UnlinkContact(ctx context.Context, contactID string, linkedUserID string) error {
+	filter := bson.M{"_id": contactID, "linked_user_id": linkedUserID}
+	update := bson.M{"$set": bson.M{"is_verified": false, "updated_at": time.Now().UTC()}, "$unset": bson.M{"linked_user_id": ""}}
+	_, err := r.coll.UpdateOne(ctx, filter, update)
+	return err
+}
+
 func (r *contactRepository) LinkContact(ctx context.Context, contactID string, userID string, linkedUserID string) error {
 	filter := bson.M{"_id": contactID, "user_id": userID}
 	update := bson.M{"$set": bson.M{"linked_user_id": linkedUserID, "updated_at": time.Now().UTC()}}

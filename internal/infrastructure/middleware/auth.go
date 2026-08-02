@@ -11,7 +11,10 @@ import (
 
 type contextKey string
 
-const UserIDKey contextKey = "userID"
+const (
+	UserIDKey contextKey = "userID"
+	RoleKey   contextKey = "role"
+)
 
 // ParseUserID valida un JWT HS256 y devuelve el `sub` (user_id).
 // Se usa en contextos sin middleware HTTP, como el handshake de WebSocket.
@@ -70,6 +73,9 @@ func JWTAuth(secret string) func(http.Handler) http.Handler {
 			}
 
 			ctx := context.WithValue(r.Context(), UserIDKey, sub)
+			if role, ok := claims["role"].(string); ok && role != "" {
+				ctx = context.WithValue(ctx, RoleKey, role)
+			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

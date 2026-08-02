@@ -59,6 +59,54 @@ func (m *mockContactRepo) FindAllByLinkedUserID(_ context.Context, linkedUserID 
 	return result, nil
 }
 
+func (m *mockContactRepo) FindAllPendingByLinkedUserID(_ context.Context, linkedUserID string) ([]*domain.Contact, error) {
+	if m.contacts == nil {
+		return []*domain.Contact{}, nil
+	}
+	var result []*domain.Contact
+	for _, c := range m.contacts {
+		if c.LinkedUserID == linkedUserID && !c.IsVerified {
+			result = append(result, c)
+		}
+	}
+	return result, nil
+}
+
+func (m *mockContactRepo) FindByIDForLinkedUser(_ context.Context, id, linkedUserID string) (*domain.Contact, error) {
+	if m.contacts == nil {
+		return nil, nil
+	}
+	c, ok := m.contacts[id]
+	if !ok || c.LinkedUserID != linkedUserID {
+		return nil, nil
+	}
+	return c, nil
+}
+
+func (m *mockContactRepo) SetVerified(_ context.Context, contactID, linkedUserID string, verified bool) (bool, error) {
+	if m.contacts == nil {
+		return false, nil
+	}
+	c, ok := m.contacts[contactID]
+	if !ok || c.LinkedUserID != linkedUserID {
+		return false, nil
+	}
+	c.IsVerified = verified
+	return true, nil
+}
+
+func (m *mockContactRepo) UnlinkContact(_ context.Context, contactID, linkedUserID string) error {
+	if m.contacts == nil {
+		return nil
+	}
+	c, ok := m.contacts[contactID]
+	if ok && c.LinkedUserID == linkedUserID {
+		c.LinkedUserID = ""
+		c.IsVerified = false
+	}
+	return nil
+}
+
 func (m *mockContactRepo) Update(_ context.Context, c *domain.Contact) error {
 	if m.contacts == nil {
 		return nil
@@ -341,5 +389,80 @@ func TestDeleteContact_WrongUser(t *testing.T) {
 	err := uc.Delete(context.Background(), "usr_b", "cnt_001")
 	if err != usecase.ErrContactNotFound {
 		t.Errorf("expected ErrContactNotFound when wrong user tries to delete, got %v", err)
+	}
+}
+
+func TestGetPending_ListsOnlyUnverified(t *testing.T) {
+	uc, repo, _ := newTestContactUseCase()
+
+	// Contactos donde el observador usr_obs aparece como vinculado
+	_ = repo.Create(context.Background(), &domain.Contact{ID: "cnt_1", UserID: "usr_victim", LinkedUserID: "usr_obs"})
+	_ = repo.Create(context.Background(), &domain.Contact{ID: "cnt_2", UserID: "usr_victim", LinkedUserID: "usr_obs", IsVerified: true})
+	_ = repo.Create(context.Background(), &domain.Contact{ID: "cnt_3", UserID: "usr_victim", LinkedUserID: "usr_other"})
+
+	pending, err := uc.GetPending(context.Background(), "usr_obs")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pending) != 1 || pending[0].ID != "cnt_1" {
+		t.Errorf("expected only pending cnt_1, got %+v", pending)
+	}
+}
+
+func TestAcceptLink_VerifiesContact(t *testing.T) {
+	uc, repo, _ := newTestContactUseCase()
+
+	if err := repo.Create(context.Background(), &domain.Contact{
+		ID: "cnt_1", UserID: "usr_victim", LinkedUserID: "usr_obs", IsVerified: false,
+	}); err != nil {
+		t.Fatalf("failed to seed contact: %v", err)
+	}
+
+	contact, err := uc.AcceptLink(context.Background(), "cnt_1", "usr_obs")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !contact.IsVerified {
+		t.Error("expected contact to be verified after accept")
+	}
+	if contact.UserID != "usr_victim" {
+		t.Errorf("expected victim user_id, got %s", contact.UserID)
+	}
+}
+
+func TestAcceptLink_WrongUser_Denied(t *testing.T) {
+	uc, repo, _ := newTestContactUseCase()
+
+	if err := repo.Create(context.Background(), &domain.Contact{
+		ID: "cnt_1", UserID: "usr_victim", LinkedUserID: "usr_obs", IsVerified: false,
+	}); err != nil {
+		t.Fatalf("failed to seed contact: %v", err)
+	}
+
+	_, err := uc.AcceptLink(context.Background(), "cnt_1", "usr_outsider")
+	if err != usecase.ErrContactNotFound {
+		t.Errorf("expected ErrContactNotFound for non-linked user, got %v", err)
+	}
+}
+
+func TestRejectLink_UnlinksContact(t *testing.T) {
+	uc, repo, _ := newTestContactUseCase()
+
+	if err := repo.Create(context.Background(), &domain.Contact{
+		ID: "cnt_1", UserID: "usr_victim", LinkedUserID: "usr_obs", IsVerified: false,
+	}); err != nil {
+		t.Fatalf("failed to seed contact: %v", err)
+	}
+
+	if err := uc.RejectLink(context.Background(), "cnt_1", "usr_obs"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	c, _ := repo.FindByID(context.Background(), "cnt_1", "usr_victim")
+	if c.LinkedUserID != "" {
+		t.Errorf("expected contact unlinked, got linked_user_id=%q", c.LinkedUserID)
+	}
+	if c.IsVerified {
+		t.Error("expected is_verified=false after reject")
 	}
 }

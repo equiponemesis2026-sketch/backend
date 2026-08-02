@@ -52,7 +52,15 @@ func (f *fakeAlertRepo) FindActiveByUserID(_ context.Context, userID string) (*d
 
 func (f *fakeAlertRepo) FindActiveByUserIDs(_ context.Context, userIDs []string) ([]*domain.Alert, error) {
 	f.byUserIDs = userIDs
-	return f.activeResult, nil
+	var result []*domain.Alert
+	for _, a := range f.activeResult {
+		for _, id := range userIDs {
+			if a.UserID == id {
+				result = append(result, a)
+			}
+		}
+	}
+	return result, nil
 }
 
 func (f *fakeAlertRepo) Resolve(_ context.Context, id string) error {
@@ -90,6 +98,16 @@ func (f *fakeContactRepo) FindAllByLinkedUserID(_ context.Context, linkedUserID 
 	f.linkedReceived = linkedUserID
 	return f.linkedResult, nil
 }
+func (f *fakeContactRepo) FindAllPendingByLinkedUserID(_ context.Context, _ string) ([]*contactDomain.Contact, error) {
+	return nil, nil
+}
+func (f *fakeContactRepo) FindByIDForLinkedUser(_ context.Context, _, _ string) (*contactDomain.Contact, error) {
+	return nil, nil
+}
+func (f *fakeContactRepo) SetVerified(_ context.Context, _, _ string, _ bool) (bool, error) {
+	return true, nil
+}
+func (f *fakeContactRepo) UnlinkContact(_ context.Context, _, _ string) error       { return nil }
 func (f *fakeContactRepo) Update(_ context.Context, _ *contactDomain.Contact) error { return nil }
 func (f *fakeContactRepo) Delete(_ context.Context, _, _ string) error              { return nil }
 func (f *fakeContactRepo) LinkContact(_ context.Context, _, _, _ string) error      { return nil }
@@ -163,8 +181,8 @@ func newTestUC(
 
 func TestCreateSOS_NotifiesLinkedObservers(t *testing.T) {
 	contacts := []*contactDomain.Contact{
-		{ID: "c1", UserID: "usr_victim", LinkedUserID: "usr_obs1"},
-		{ID: "c2", UserID: "usr_victim", LinkedUserID: "usr_obs2"},
+		{ID: "c1", UserID: "usr_victim", LinkedUserID: "usr_obs1", IsVerified: true},
+		{ID: "c2", UserID: "usr_victim", LinkedUserID: "usr_obs2", IsVerified: true},
 		{ID: "c3", UserID: "usr_victim"}, // sin vincular
 	}
 	devices := map[string][]*deviceDomain.Device{
@@ -264,7 +282,7 @@ func TestCreateCoercion_CoercionPin_EscalatesAndSilentPush(t *testing.T) {
 		"alt_1": {ID: "alt_1", UserID: "usr_victim", Type: domain.AlertTypeSOS, Status: domain.AlertStatusActive},
 	}}
 	contactRepo := &fakeContactRepo{contacts: []*contactDomain.Contact{
-		{ID: "c1", UserID: "usr_victim", LinkedUserID: "usr_obs1"},
+		{ID: "c1", UserID: "usr_victim", LinkedUserID: "usr_obs1", IsVerified: true},
 	}}
 	deviceRepo := &fakeDeviceRepo{devices: map[string][]*deviceDomain.Device{
 		"obs1": {{ID: "dev_a", UserID: "obs1", FCMToken: "tok_a"}},
@@ -369,7 +387,7 @@ func TestResolveAlert_DeniesNonOwner(t *testing.T) {
 
 func TestGetObserving_QueriesLinkedVictims(t *testing.T) {
 	linked := []*contactDomain.Contact{
-		{ID: "c1", UserID: "usr_victim_a", LinkedUserID: "usr_obs"},
+		{ID: "c1", UserID: "usr_victim_a", LinkedUserID: "usr_obs", IsVerified: true},
 	}
 	alertRepo := &fakeAlertRepo{activeResult: []*domain.Alert{
 		{ID: "alt_1", UserID: "usr_victim_a", Type: domain.AlertTypeSOS, Status: domain.AlertStatusActive},
@@ -402,5 +420,75 @@ func TestGetByID_DeniesNonObserver(t *testing.T) {
 
 	if _, err := uc.GetByID(context.Background(), "alt_1", "usr_outsider"); err == nil {
 		t.Error("expected error for non-victim, non-observer, got nil")
+	}
+}
+
+func TestCreateSOS_SkipsUnverifiedObservers(t *testing.T) {
+	contacts := []*contactDomain.Contact{
+		{ID: "c1", UserID: "usr_victim", LinkedUserID: "usr_obs1", IsVerified: true},
+		{ID: "c2", UserID: "usr_victim", LinkedUserID: "usr_obs2", IsVerified: false}, // pendiente
+	}
+	devices := map[string][]*deviceDomain.Device{
+		"obs1": {{ID: "dev_a", UserID: "obs1", FCMToken: "tok_a"}},
+		"obs2": {{ID: "dev_b", UserID: "obs2", FCMToken: "tok_b"}},
+	}
+
+	alertRepo := &fakeAlertRepo{}
+	contactRepo := &fakeContactRepo{contacts: contacts}
+	deviceRepo := &fakeDeviceRepo{devices: devices}
+	notifier := &fakeNotifier{}
+	uc := newTestUC(alertRepo, contactRepo, deviceRepo, notifier, &fakePinVerifier{})
+
+	if _, err := uc.CreateSOS(context.Background(), "usr_victim", domain.SOSInput{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if notifier.calls != 1 {
+		t.Errorf("expected 1 notifier call (only verified observer), got %d", notifier.calls)
+	}
+	if len(notifier.tokens) != 1 || notifier.tokens[0] != "tok_a" {
+		t.Errorf("expected only verified observer's token, got %v", notifier.tokens)
+	}
+}
+
+func TestGetObserving_ExcludesUnverifiedVictims(t *testing.T) {
+	linked := []*contactDomain.Contact{
+		{ID: "c1", UserID: "usr_victim_a", LinkedUserID: "usr_obs", IsVerified: true},
+		{ID: "c2", UserID: "usr_victim_b", LinkedUserID: "usr_obs", IsVerified: false}, // no aceptado
+	}
+	alertRepo := &fakeAlertRepo{activeResult: []*domain.Alert{
+		{ID: "alt_1", UserID: "usr_victim_a", Type: domain.AlertTypeSOS, Status: domain.AlertStatusActive},
+		{ID: "alt_2", UserID: "usr_victim_b", Type: domain.AlertTypeSOS, Status: domain.AlertStatusActive},
+	}}
+	contactRepo := &fakeContactRepo{linkedResult: linked}
+	deviceRepo := &fakeDeviceRepo{}
+	notifier := &fakeNotifier{}
+	uc := newTestUC(alertRepo, contactRepo, deviceRepo, notifier, &fakePinVerifier{})
+
+	alerts, err := uc.GetObserving(context.Background(), "usr_obs")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(alertRepo.byUserIDs) != 1 || alertRepo.byUserIDs[0] != "usr_victim_a" {
+		t.Errorf("expected only verified victim usr_victim_a in query, got %v", alertRepo.byUserIDs)
+	}
+	if len(alerts) != 1 || alerts[0].ID != "alt_1" {
+		t.Errorf("expected 1 active alert from verified victim, got %+v", alerts)
+	}
+}
+
+func TestGetByID_DeniesUnverifiedObserver(t *testing.T) {
+	alertRepo := &fakeAlertRepo{alerts: map[string]*domain.Alert{
+		"alt_1": {ID: "alt_1", UserID: "usr_victim", Type: domain.AlertTypeSOS, Status: domain.AlertStatusActive},
+	}}
+	// Observador vinculado pero NO verificado (pendiente de aceptación)
+	contactRepo := &fakeContactRepo{linkedResult: []*contactDomain.Contact{
+		{ID: "c1", UserID: "usr_victim", LinkedUserID: "usr_obs", IsVerified: false},
+	}}
+	deviceRepo := &fakeDeviceRepo{}
+	notifier := &fakeNotifier{}
+	uc := newTestUC(alertRepo, contactRepo, deviceRepo, notifier, &fakePinVerifier{})
+
+	if _, err := uc.GetByID(context.Background(), "alt_1", "usr_obs"); err == nil {
+		t.Error("expected error for unverified observer, got nil")
 	}
 }

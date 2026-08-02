@@ -115,6 +115,54 @@ func (m *mockContactRepo) FindAllByLinkedUserID(_ context.Context, linkedUserID 
 	return result, nil
 }
 
+func (m *mockContactRepo) FindAllPendingByLinkedUserID(_ context.Context, linkedUserID string) ([]*contactDomain.Contact, error) {
+	if m.contacts == nil {
+		return []*contactDomain.Contact{}, nil
+	}
+	var result []*contactDomain.Contact
+	for _, c := range m.contacts {
+		if c.LinkedUserID == linkedUserID && !c.IsVerified {
+			result = append(result, c)
+		}
+	}
+	return result, nil
+}
+
+func (m *mockContactRepo) FindByIDForLinkedUser(_ context.Context, id, linkedUserID string) (*contactDomain.Contact, error) {
+	if m.contacts == nil {
+		return nil, nil
+	}
+	c, ok := m.contacts[id]
+	if !ok || c.LinkedUserID != linkedUserID {
+		return nil, nil
+	}
+	return c, nil
+}
+
+func (m *mockContactRepo) SetVerified(_ context.Context, contactID, linkedUserID string, verified bool) (bool, error) {
+	if m.contacts == nil {
+		return false, nil
+	}
+	c, ok := m.contacts[contactID]
+	if !ok || c.LinkedUserID != linkedUserID {
+		return false, nil
+	}
+	c.IsVerified = verified
+	return true, nil
+}
+
+func (m *mockContactRepo) UnlinkContact(_ context.Context, contactID, linkedUserID string) error {
+	if m.contacts == nil {
+		return nil
+	}
+	c, ok := m.contacts[contactID]
+	if ok && c.LinkedUserID == linkedUserID {
+		c.LinkedUserID = ""
+		c.IsVerified = false
+	}
+	return nil
+}
+
 func (m *mockContactRepo) LinkContact(_ context.Context, contactID, userID, linkedUserID string) error {
 	if m.contacts == nil {
 		return nil

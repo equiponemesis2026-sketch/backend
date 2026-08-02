@@ -24,11 +24,13 @@ import (
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/config"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/database"
 	"github.com/nemesis-project/api-nemesis/internal/infrastructure/middleware"
+	notifDomain "github.com/nemesis-project/api-nemesis/internal/notifications/domain"
 	notifService "github.com/nemesis-project/api-nemesis/internal/notifications/service"
 	subscriptionHttp "github.com/nemesis-project/api-nemesis/internal/subscription/delivery/http"
 	subscriptionMongo "github.com/nemesis-project/api-nemesis/internal/subscription/repository/mongo"
 	subscriptionUsecase "github.com/nemesis-project/api-nemesis/internal/subscription/usecase"
 	tokenHttp "github.com/nemesis-project/api-nemesis/internal/token/delivery/http"
+	deviceDomain "github.com/nemesis-project/api-nemesis/internal/token/domain"
 	tokenRepo "github.com/nemesis-project/api-nemesis/internal/token/repository"
 	tokenUseCase "github.com/nemesis-project/api-nemesis/internal/token/usecase"
 	userHttp "github.com/nemesis-project/api-nemesis/internal/user/delivery/http"
@@ -87,6 +89,14 @@ func main() {
 	if err != nil {
 		slog.Error("failed to initialize FCM service", "error", err)
 		os.Exit(1)
+	}
+
+	// Notificar al usuario vinculado cuando alguien lo agrega como contacto
+	// de confianza, para que acepte (o rechace) la solicitud de observación.
+	if supportNotifier, ok := contactUseCase.(interface {
+		SetSupportNotifier(notifDomain.PushNotifier, deviceDomain.DeviceRepository)
+	}); ok {
+		supportNotifier.SetSupportNotifier(notifier, tokenRepoImpl)
 	}
 
 	hubCtx, hubCancel := context.WithCancel(context.Background())
@@ -150,6 +160,9 @@ func main() {
 		r.Use(authMiddleware)
 		r.Get("/", contactHandler.GetAll)
 		r.Post("/", contactHandler.Create)
+		r.Get("/pending", contactHandler.GetPending)
+		r.Post("/{id}/accept", contactHandler.AcceptLink)
+		r.Post("/{id}/reject", contactHandler.RejectLink)
 		r.Put("/{id}", contactHandler.Update)
 		r.Delete("/{id}", contactHandler.Delete)
 	})
