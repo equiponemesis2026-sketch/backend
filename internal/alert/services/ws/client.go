@@ -28,19 +28,23 @@ type Client struct {
 	userID   string
 	role     Role
 	alertIDs map[string]struct{}
+	store    alertDomain.TelemetryRepository
 	send     chan []byte
 	done     chan struct{}
 	once     sync.Once
 }
 
 // NewClient crea un cliente asociado a un hub y sus canales de alerta.
-func NewClient(hub *Hub, conn *websocket.Conn, userID string, role Role, alertIDs []string) *Client {
+// store es opcional; si se provee, la telemetría recibida se persiste en
+// background para alimentar el historial forense (best-effort, sin bloquear).
+func NewClient(hub *Hub, conn *websocket.Conn, userID string, role Role, alertIDs []string, store alertDomain.TelemetryRepository) *Client {
 	c := &Client{
 		conn:     conn,
 		hub:      hub,
 		userID:   userID,
 		role:     role,
 		alertIDs: make(map[string]struct{}, len(alertIDs)),
+		store:    store,
 		send:     make(chan []byte, sendBufferSize),
 		done:     make(chan struct{}),
 	}
@@ -118,6 +122,10 @@ func (c *Client) readPump(ctx context.Context) {
 			packet.Timestamp = time.Now().Unix()
 		}
 
+		if c.store != nil {
+			c.persist(packet)
+		}
+
 		payload, err := json.Marshal(packet)
 		if err != nil {
 			continue
@@ -125,6 +133,28 @@ func (c *Client) readPump(ctx context.Context) {
 
 		c.hub.Broadcast(packet.AlertID, payload)
 	}
+}
+
+// persist guarda la telemetría en MongoDB de forma asíncrona y best-effort.
+// Un fallo de persistencia jamás interrumpe la transmisión en vivo.
+func (c *Client) persist(packet alertDomain.TelemetryPacket) {
+	record := &alertDomain.TelemetryRecord{
+		AlertID:      packet.AlertID,
+		UserID:       c.userID,
+		Latitude:     packet.Latitude,
+		Longitude:    packet.Longitude,
+		Speed:        packet.Speed,
+		BatteryLevel: packet.BatteryLevel,
+		Timestamp:    packet.Timestamp,
+		ReceivedAt:   time.Now().UTC(),
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := c.store.Save(ctx, record); err != nil {
+			slog.Warn("ws: failed to persist telemetry", "alert_id", packet.AlertID, "error", err)
+		}
+	}()
 }
 
 // writePump reenvía la telemetría a los receptores del cliente.

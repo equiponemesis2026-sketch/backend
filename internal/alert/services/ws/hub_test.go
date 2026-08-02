@@ -99,7 +99,7 @@ func dialTestServer(t *testing.T, hub *Hub, alertID string, role Role) (*websock
 		if err != nil {
 			return
 		}
-		client := NewClient(hub, conn, "usr_test", role, []string{alertID})
+		client := NewClient(hub, conn, "usr_test", role, []string{alertID}, nil)
 		clientCh <- client
 		go client.Run()
 	})
