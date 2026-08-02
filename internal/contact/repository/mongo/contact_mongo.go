@@ -41,7 +41,7 @@ func (r *contactRepository) FindAllByUserID(ctx context.Context, userID string) 
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var contacts []*domain.Contact
 	if err := cursor.All(ctx, &contacts); err != nil {
