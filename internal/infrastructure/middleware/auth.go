@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -11,6 +12,27 @@ import (
 type contextKey string
 
 const UserIDKey contextKey = "userID"
+
+// ParseUserID valida un JWT HS256 y devuelve el `sub` (user_id).
+// Se usa en contextos sin middleware HTTP, como el handshake de WebSocket.
+func ParseUserID(tokenString string, secret []byte) (string, error) {
+	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
+		return secret, nil
+	}, jwt.WithValidMethods([]string{"HS256"}))
+	if err != nil || !token.Valid {
+		return "", err
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", errors.New("invalid token claims")
+	}
+	sub, ok := claims["sub"].(string)
+	if !ok || sub == "" {
+		return "", errors.New("invalid token subject")
+	}
+	return sub, nil
+}
 
 func JWTAuth(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

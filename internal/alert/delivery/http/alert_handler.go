@@ -25,18 +25,14 @@ func NewAlertHandler(uc domain.AlertUseCase) *AlertHandler {
 func (h *AlertHandler) CreateSOS(w http.ResponseWriter, r *http.Request) {
 	victimID := r.Context().Value(middleware.UserIDKey).(string)
 
-	var input domain.CreateAlertInput
+	var input domain.SOSInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		response.WriteError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	alert, err := h.uc.CreateAlert(r.Context(), victimID, input)
+	alert, err := h.uc.CreateSOS(r.Context(), victimID, input)
 	if err != nil {
-		if errors.Is(err, usecase.ErrAlertTypeInvalid) {
-			response.WriteError(w, http.StatusBadRequest, err.Error())
-			return
-		}
 		response.WriteError(w, http.StatusInternalServerError, "Failed to create alert")
 		return
 	}
@@ -44,6 +40,58 @@ func (h *AlertHandler) CreateSOS(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, http.StatusCreated, map[string]interface{}{
 		"status":  "success",
 		"message": "Alert created and observers notified",
+		"data":    alert,
+	})
+}
+
+// CreateCoercion maneja la entrada de PIN bajo coacción. Responde SIEMPRE
+// con el mismo HTTP 200 engañoso cuando el PIN es válido, de modo que un
+// agresor no pueda distinguir entre cancelación real y código rojo.
+func (h *AlertHandler) CreateCoercion(w http.ResponseWriter, r *http.Request) {
+	victimID := r.Context().Value(middleware.UserIDKey).(string)
+
+	var input domain.CoercionInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"status":  "error",
+			"message": "Invalid request",
+		})
+		return
+	}
+
+	if _, err := h.uc.CreateCoercion(r.Context(), victimID, input); err != nil {
+		// Respuesta genérica idéntica para no filtrar información al agresor.
+		response.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"status":  "error",
+			"message": "Invalid request",
+		})
+		return
+	}
+
+	// Éxito fingido: idéntico para PIN real (resuelto) y PIN de coerción.
+	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"status": "resolved",
+	})
+}
+
+// Resolve permite a la víctima cancelar explícitamente una alerta activa.
+func (h *AlertHandler) Resolve(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(middleware.UserIDKey).(string)
+	alertID := chi.URLParam(r, "id")
+
+	alert, err := h.uc.ResolveAlert(r.Context(), alertID, userID)
+	if err != nil {
+		if errors.Is(err, usecase.ErrAlertNotFound) {
+			response.WriteError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		response.WriteError(w, http.StatusInternalServerError, "Failed to resolve alert")
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "success",
+		"message": "Alert resolved",
 		"data":    alert,
 	})
 }

@@ -48,6 +48,10 @@ func (m *mockUserRepo) FindByPhone(_ context.Context, _ string) (*userDomain.Use
 	return nil, nil
 }
 
+func (m *mockUserRepo) UpdateSecurityPins(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 func (m *mockUserRepo) FindByID(_ context.Context, id string) (*userDomain.User, error) {
 	if m.users == nil {
 		return nil, nil

@@ -8,12 +8,14 @@ import (
 // User representa la entidad de usuario en el sistema Némesis.
 // Mantiene tags bson para MongoDB y json para serialización externa.
 type User struct {
-	ID        string    `json:"user_id" bson:"_id"`
-	Name      string    `json:"name" bson:"name"`
-	Email     string    `json:"email" bson:"email"`
-	Password  string    `json:"password,omitempty" bson:"password"` // omitempty por seguridad
-	Phone     string    `json:"phone" bson:"phone"`
-	CreatedAt time.Time `json:"created_at" bson:"created_at"`
+	ID              string    `json:"user_id" bson:"_id"`
+	Name            string    `json:"name" bson:"name"`
+	Email           string    `json:"email" bson:"email"`
+	Password        string    `json:"password,omitempty" bson:"password"` // omitempty por seguridad
+	Phone           string    `json:"phone" bson:"phone"`
+	RealPINHash     string    `json:"-" bson:"real_pin_hash,omitempty"`
+	CoercionPINHash string    `json:"-" bson:"coercion_pin_hash,omitempty"`
+	CreatedAt       time.Time `json:"created_at" bson:"created_at"`
 }
 
 // TokenResponse representa el payload de respuesta en una autenticación exitosa.
@@ -45,16 +47,35 @@ type LoginInput struct {
 	Password string `json:"password" binding:"required"`
 }
 
+// SecurityPinsInput encapsula los PINs de seguridad (real y de coerción).
+// Ambos deben tener entre 4 y 6 dígitos y ser distintos entre sí.
+type SecurityPinsInput struct {
+	RealPIN     string `json:"real_pin" validate:"required,len=4,min=4,max=6,nefield=CoercionPIN"`
+	CoercionPIN string `json:"coercion_pin" validate:"required,len=4,min=4,max=6"`
+}
+
+// PinMatch describe el resultado de verificar un PIN contra los hashes del usuario.
+type PinMatch int
+
+const (
+	PinNone     PinMatch = iota // no coincide con ninguno
+	PinReal                     // PIN real: cancelar/desactivar alerta
+	PinCoercion                 // PIN de coerción: modo código rojo silencioso
+)
+
 // UserRepository define el contrato de persistencia para el módulo de usuarios.
 type UserRepository interface {
 	Create(ctx context.Context, user *User) error
 	FindByEmail(ctx context.Context, email string) (*User, error)
 	FindByPhone(ctx context.Context, phone string) (*User, error)
 	FindByID(ctx context.Context, id string) (*User, error)
+	UpdateSecurityPins(ctx context.Context, userID string, realPINHash string, coercionPINHash string) error
 }
 
 // UserUseCase define la lógica de negocio para registro y autenticación.
 type UserUseCase interface {
 	Register(ctx context.Context, input RegisterInput) (*User, error)
 	Login(ctx context.Context, input LoginInput) (*TokenResponse, error)
+	SetSecurityPins(ctx context.Context, userID string, input SecurityPinsInput) error
+	VerifyPin(ctx context.Context, userID string, pin string) (PinMatch, error)
 }

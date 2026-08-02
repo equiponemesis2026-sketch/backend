@@ -133,6 +133,10 @@ func (m *mockUserRepo) FindByID(_ context.Context, _ string) (*userDomain.User, 
 	return nil, nil
 }
 
+func (m *mockUserRepo) UpdateSecurityPins(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 func newTestContactUseCase() (domain.ContactUseCase, *mockContactRepo, *mockUserRepo) {
 	repo := &mockContactRepo{}
 	userRepo := &mockUserRepo{}

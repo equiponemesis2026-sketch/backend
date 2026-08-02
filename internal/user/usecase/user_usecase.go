@@ -37,6 +37,13 @@ type ContactLinker interface {
 	LinkPendingContacts(ctx context.Context, email string, phone string, userID string) error
 }
 
+// PinVerifier permite verificar el PIN ingresado por una víctima contra
+// sus hashes de seguridad (real / coerción). Lo implementa el usecase de
+// usuarios y lo consumen otros módulos (p.ej. el motor de alertas).
+type PinVerifier interface {
+	VerifyPin(ctx context.Context, userID string, pin string) (domain.PinMatch, error)
+}
+
 // NewUserUseCase inicializa el caso de uso con su repositorio y parámetros JWT.
 func NewUserUseCase(repo domain.UserRepository, jwtSecret string, jwtExpiry time.Duration) domain.UserUseCase {
 	return &userUseCase{
@@ -49,6 +56,57 @@ func NewUserUseCase(repo domain.UserRepository, jwtSecret string, jwtExpiry time
 // SetContactLinker inyecta el linker de contactos pendientes (opcional).
 func (u *userUseCase) SetContactLinker(linker ContactLinker) {
 	u.contactLinker = linker
+}
+
+// SetSecurityPins valida, hashea y persiste los PINs de seguridad del usuario.
+func (u *userUseCase) SetSecurityPins(ctx context.Context, userID string, input domain.SecurityPinsInput) error {
+	if err := validate.Struct(input); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidInput, err)
+	}
+
+	if input.RealPIN == "" || input.CoercionPIN == "" {
+		return ErrInvalidInput
+	}
+
+	realHash, err := bcrypt.GenerateFromPassword([]byte(input.RealPIN), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash real pin: %w", err)
+	}
+	coercionHash, err := bcrypt.GenerateFromPassword([]byte(input.CoercionPIN), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash coercion pin: %w", err)
+	}
+
+	if err := u.userRepo.UpdateSecurityPins(ctx, userID, string(realHash), string(coercionHash)); err != nil {
+		return fmt.Errorf("failed to persist security pins: %w", err)
+	}
+
+	return nil
+}
+
+// VerifyPin compara un PIN en texto plano contra los hashes del usuario.
+// Devuelve PinNone si no coincide con ninguno o si el usuario no existe.
+func (u *userUseCase) VerifyPin(ctx context.Context, userID string, pin string) (domain.PinMatch, error) {
+	user, err := u.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return domain.PinNone, fmt.Errorf("failed to fetch user: %w", err)
+	}
+	if user == nil {
+		return domain.PinNone, nil
+	}
+
+	if user.RealPINHash != "" {
+		if bcrypt.CompareHashAndPassword([]byte(user.RealPINHash), []byte(pin)) == nil {
+			return domain.PinReal, nil
+		}
+	}
+	if user.CoercionPINHash != "" {
+		if bcrypt.CompareHashAndPassword([]byte(user.CoercionPINHash), []byte(pin)) == nil {
+			return domain.PinCoercion, nil
+		}
+	}
+
+	return domain.PinNone, nil
 }
 
 // Register maneja la lógica de negocio para la creación y persistencia de un nuevo usuario.

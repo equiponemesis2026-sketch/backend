@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/nemesis-project/api-nemesis/internal/infrastructure/middleware"
 	"github.com/nemesis-project/api-nemesis/internal/user/domain"
 	"github.com/nemesis-project/api-nemesis/internal/user/usecase"
 	"github.com/nemesis-project/api-nemesis/pkg/response"
@@ -81,5 +82,30 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		"status":  "success",
 		"message": "Login successful",
 		"data":    tokenResp,
+	})
+}
+
+// SetSecurityPins maneja PUT /api/v1/user/security/pins
+func (h *UserHandler) SetSecurityPins(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(middleware.UserIDKey).(string)
+
+	var input domain.SecurityPinsInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		response.WriteError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if err := h.uc.SetSecurityPins(r.Context(), userID, input); err != nil {
+		if errors.Is(err, usecase.ErrInvalidInput) {
+			response.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.WriteError(w, http.StatusInternalServerError, "Failed to set security pins")
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "success",
+		"message": "Security pins configured successfully",
 	})
 }
