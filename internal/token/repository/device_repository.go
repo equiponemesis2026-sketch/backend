@@ -65,7 +65,7 @@ func (r *deviceRepository) FindAllDevicesByUserID(ctx context.Context, userID st
 	}
 	defer func() { _ = cursor.Close(ctx) }()
 
-	var devices []*domain.Device
+	devices := []*domain.Device{}
 	if err := cursor.All(ctx, &devices); err != nil {
 		return nil, err
 	}

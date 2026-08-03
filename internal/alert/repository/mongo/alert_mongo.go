@@ -99,7 +99,7 @@ func (r *alertRepository) FindActiveByUserIDs(ctx context.Context, userIDs []str
 	}
 	defer func() { _ = cursor.Close(ctx) }()
 
-	var alerts []*domain.Alert
+	alerts := []*domain.Alert{}
 	if err := cursor.All(ctx, &alerts); err != nil {
 		return nil, err
 	}
