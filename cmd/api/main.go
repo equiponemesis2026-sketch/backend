@@ -223,6 +223,7 @@ func main() {
 		r.Post("/sos", alertHandler.CreateSOS)
 		r.Post("/coercion", alertHandler.CreateCoercion)
 		r.Put("/{id}/resolved", alertHandler.Resolve)
+		r.Get("/", alertHandler.GetOwn)
 		r.Get("/observing", alertHandler.GetObserving)
 		r.Get("/{id}", alertHandler.GetByID)
 	})

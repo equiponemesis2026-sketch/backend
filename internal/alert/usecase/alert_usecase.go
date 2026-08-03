@@ -219,6 +219,15 @@ func (uc *alertUseCase) GetByID(ctx context.Context, id string, viewerID string)
 	return nil, ErrAlertNotFound
 }
 
+// GetByUserID lista las alertas propias de la víctima (historial del panel web).
+func (uc *alertUseCase) GetByUserID(ctx context.Context, userID string) ([]*domain.Alert, error) {
+	alerts, err := uc.alertRepo.FindByUserID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch alerts: %w", err)
+	}
+	return alerts, nil
+}
+
 // GetObserving lista las emergencias activas de las víctimas a las que el
 // observador está vinculado (dashboard / mapa en vivo).
 func (uc *alertUseCase) GetObserving(ctx context.Context, observerID string) ([]*domain.Alert, error) {

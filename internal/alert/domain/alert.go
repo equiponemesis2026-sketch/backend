@@ -77,6 +77,7 @@ type TelemetryPacket struct {
 type AlertRepository interface {
 	Create(ctx context.Context, alert *Alert) error
 	FindByID(ctx context.Context, id string) (*Alert, error)
+	FindByUserID(ctx context.Context, userID string) ([]*Alert, error)
 	FindActiveByUserID(ctx context.Context, userID string) (*Alert, error)
 	FindActiveByUserIDs(ctx context.Context, userIDs []string) ([]*Alert, error)
 	Resolve(ctx context.Context, id string) error
@@ -90,5 +91,6 @@ type AlertUseCase interface {
 	CreateCoercion(ctx context.Context, victimID string, input CoercionInput) (*Alert, error)
 	ResolveAlert(ctx context.Context, alertID string, userID string) (*Alert, error)
 	GetByID(ctx context.Context, id string, viewerID string) (*Alert, error)
+	GetByUserID(ctx context.Context, userID string) ([]*Alert, error)
 	GetObserving(ctx context.Context, observerID string) ([]*Alert, error)
 }

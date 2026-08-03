@@ -118,6 +118,23 @@ func (h *AlertHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetOwn lista las alertas propias del usuario autenticado (historial).
+func (h *AlertHandler) GetOwn(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(middleware.UserIDKey).(string)
+
+	alerts, err := h.uc.GetByUserID(r.Context(), userID)
+	if err != nil {
+		response.WriteError(w, http.StatusInternalServerError, "Failed to fetch alerts")
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "success",
+		"message": "Alerts retrieved successfully",
+		"data":    alerts,
+	})
+}
+
 // GetObserving lista las emergencias activas de las víctimas vinculadas al observador.
 func (h *AlertHandler) GetObserving(w http.ResponseWriter, r *http.Request) {
 	observerID := r.Context().Value(middleware.UserIDKey).(string)
