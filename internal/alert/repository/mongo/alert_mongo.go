@@ -56,6 +56,27 @@ func (r *alertRepository) FindActiveByUserID(ctx context.Context, userID string)
 	return &alert, nil
 }
 
+// FindByUserID lista las alertas propias del usuario, de la más reciente a la
+// más antigua (historial del panel web de la víctima).
+func (r *alertRepository) FindByUserID(ctx context.Context, userID string) ([]*domain.Alert, error) {
+	filter := bson.M{"user_id": userID}
+	opts := options.Find().
+		SetSort(bson.D{{Key: "created_at", Value: -1}}).
+		SetLimit(50)
+
+	cursor, err := r.coll.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = cursor.Close(ctx) }()
+
+	alerts := []*domain.Alert{}
+	if err := cursor.All(ctx, &alerts); err != nil {
+		return nil, err
+	}
+	return alerts, nil
+}
+
 // Resolve marca la alerta como resuelta.
 func (r *alertRepository) Resolve(ctx context.Context, id string) error {
 	update := bson.M{"$set": bson.M{

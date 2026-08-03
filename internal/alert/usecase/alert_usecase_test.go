@@ -35,6 +35,16 @@ func (f *fakeAlertRepo) FindByID(_ context.Context, id string) (*domain.Alert, e
 	return f.alerts[id], nil
 }
 
+func (f *fakeAlertRepo) FindByUserID(_ context.Context, userID string) ([]*domain.Alert, error) {
+	var result []*domain.Alert
+	for _, a := range f.alerts {
+		if a.UserID == userID {
+			result = append(result, a)
+		}
+	}
+	return result, nil
+}
+
 func (f *fakeAlertRepo) FindActiveByUserID(_ context.Context, userID string) (*domain.Alert, error) {
 	if f.alerts == nil {
 		return nil, nil
@@ -396,6 +406,25 @@ func TestResolveAlert_DeniesNonOwner(t *testing.T) {
 
 	if _, err := uc.ResolveAlert(context.Background(), "alt_1", "usr_outsider"); err != usecase.ErrAlertNotFound {
 		t.Errorf("expected ErrAlertNotFound, got %v", err)
+	}
+}
+
+func TestGetByUserID_ReturnsOnlyOwnAlerts(t *testing.T) {
+	alertRepo := &fakeAlertRepo{alerts: map[string]*domain.Alert{
+		"alt_1": {ID: "alt_1", UserID: "usr_victim", Type: domain.AlertTypeSOS, Status: domain.AlertStatusActive},
+		"alt_2": {ID: "alt_2", UserID: "usr_other", Type: domain.AlertTypeSOS, Status: domain.AlertStatusResolved},
+	}}
+	contactRepo := &fakeContactRepo{}
+	deviceRepo := &fakeDeviceRepo{}
+	notifier := &fakeNotifier{}
+	uc := newTestUC(alertRepo, contactRepo, deviceRepo, notifier, &fakePinVerifier{})
+
+	alerts, err := uc.GetByUserID(context.Background(), "usr_victim")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(alerts) != 1 || alerts[0].ID != "alt_1" {
+		t.Errorf("expected only own alert alt_1, got %+v", alerts)
 	}
 }
 
