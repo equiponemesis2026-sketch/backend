@@ -44,7 +44,7 @@ func (r *contactRepository) FindAllByUserID(ctx context.Context, userID string) 
 	}
 	defer func() { _ = cursor.Close(ctx) }()
 
-	var contacts []*domain.Contact
+	contacts := []*domain.Contact{}
 	if err := cursor.All(ctx, &contacts); err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func (r *contactRepository) FindAllByLinkedUserID(ctx context.Context, linkedUse
 	}
 	defer func() { _ = cursor.Close(ctx) }()
 
-	var contacts []*domain.Contact
+	contacts := []*domain.Contact{}
 	if err := cursor.All(ctx, &contacts); err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func (r *contactRepository) FindAllPendingByLinkedUserID(ctx context.Context, li
 	}
 	defer func() { _ = cursor.Close(ctx) }()
 
-	var contacts []*domain.Contact
+	contacts := []*domain.Contact{}
 	if err := cursor.All(ctx, &contacts); err != nil {
 		return nil, err
 	}
