@@ -194,6 +194,7 @@ func main() {
 		r.Get("/", contactHandler.GetAll)
 		r.Post("/", contactHandler.Create)
 		r.Get("/pending", contactHandler.GetPending)
+		r.Get("/observed", contactHandler.GetObserved)
 		r.Post("/{id}/accept", contactHandler.AcceptLink)
 		r.Post("/{id}/reject", contactHandler.RejectLink)
 		r.Put("/{id}", contactHandler.Update)

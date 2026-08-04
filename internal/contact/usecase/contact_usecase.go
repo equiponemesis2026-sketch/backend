@@ -256,3 +256,42 @@ func (uc *contactUseCase) RejectLink(ctx context.Context, contactID string, user
 	}
 	return nil
 }
+
+// GetObserved lista las víctimas a las que el observador está vinculado y
+// verificado (aceptó la solicitud). Incluye el nombre real de la víctima para
+// mostrarlo en el panel del observador. Se deduplica por víctima.
+func (uc *contactUseCase) GetObserved(ctx context.Context, observerID string) ([]*domain.ObservedVictim, error) {
+	contacts, err := uc.repo.FindAllByLinkedUserID(ctx, observerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch observed contacts: %w", err)
+	}
+
+	seen := make(map[string]struct{})
+	victims := []*domain.ObservedVictim{}
+	for _, c := range contacts {
+		if !c.IsVerified {
+			continue
+		}
+		if _, dup := seen[c.UserID]; dup {
+			continue
+		}
+		seen[c.UserID] = struct{}{}
+
+		name := c.Name
+		if u, err := uc.userRepo.FindByID(ctx, c.UserID); err == nil && u != nil && u.Name != "" {
+			name = u.Name
+		}
+
+		victims = append(victims, &domain.ObservedVictim{
+			ContactID:  c.ID,
+			UserID:     c.UserID,
+			Name:       name,
+			Phone:      c.Phone,
+			IsVerified: true,
+			CreatedAt:  c.CreatedAt,
+			UpdatedAt:  c.UpdatedAt,
+		})
+	}
+
+	return victims, nil
+}
