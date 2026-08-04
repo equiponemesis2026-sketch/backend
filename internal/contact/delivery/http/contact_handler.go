@@ -161,6 +161,24 @@ func (h *ContactHandler) GetPending(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetObserved lista las víctimas a las que el observador autenticado está
+// vinculado y verificado (su "personas que observo").
+func (h *ContactHandler) GetObserved(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(middleware.UserIDKey).(string)
+
+	victims, err := h.uc.GetObserved(r.Context(), userID)
+	if err != nil {
+		response.WriteError(w, http.StatusInternalServerError, "Failed to fetch observed victims")
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "success",
+		"message": "Observed victims retrieved successfully",
+		"data":    victims,
+	})
+}
+
 // AcceptLink permite al usuario vinculado aceptar la solicitud y convertirse
 // en observador verificado.
 func (h *ContactHandler) AcceptLink(w http.ResponseWriter, r *http.Request) {

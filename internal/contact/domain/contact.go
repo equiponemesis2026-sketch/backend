@@ -32,6 +32,18 @@ type UpdateContactInput struct {
 	Relationship *string `json:"relationship,omitempty"`
 }
 
+// ObservedVictim describe un vínculo verificado desde la perspectiva del
+// observador: la víctima que lo agregó y cuyo rol de observación aceptó.
+type ObservedVictim struct {
+	ContactID  string    `json:"contact_id"`
+	UserID     string    `json:"user_id"`
+	Name       string    `json:"name"`
+	Phone      string    `json:"phone"`
+	IsVerified bool      `json:"is_verified"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 type ContactRepository interface {
 	Create(ctx context.Context, contact *Contact) error
 	FindByID(ctx context.Context, id string, userID string) (*Contact, error)
@@ -56,4 +68,5 @@ type ContactUseCase interface {
 	GetPending(ctx context.Context, userID string) ([]*Contact, error)
 	AcceptLink(ctx context.Context, contactID string, userID string) (*Contact, error)
 	RejectLink(ctx context.Context, contactID string, userID string) error
+	GetObserved(ctx context.Context, observerID string) ([]*ObservedVictim, error)
 }
