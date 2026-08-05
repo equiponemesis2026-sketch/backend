@@ -7,3 +7,27 @@ services:
       - "8080:8080"
     env_file:
       - .env
+    environment:
+      - AI_ANALYZER_URL=http://nemesis-ai:8000
+    depends_on:
+      - nemesis-ai
+
+  nemesis-ai:
+    build: ../nemesis-ai
+    container_name: nemesis-ai
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - AI_MODEL=pollitoconpapass/superb-ser-finetuned-spanish-v5
+    volumes:
+      - nemesis-ai-models:/app/models
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+volumes:
+  nemesis-ai-models:
