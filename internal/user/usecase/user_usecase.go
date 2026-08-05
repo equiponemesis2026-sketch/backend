@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
+	tokenDomain "github.com/nemesis-project/api-nemesis/internal/token/domain"
 	"github.com/nemesis-project/api-nemesis/internal/user/domain"
 )
 
@@ -220,4 +221,41 @@ func (u *userUseCase) Login(ctx context.Context, input domain.LoginInput) (*doma
 	}
 
 	return response, nil
+}
+
+// IssueSessionToken firma un JWT de sesión para un usuario ya identificado
+// por otro medio (login por código de emparejamiento de dispositivo, no por
+// correo/contraseña). Implementa token/domain.TokenIssuer.
+func (u *userUseCase) IssueSessionToken(ctx context.Context, userID string) (*tokenDomain.SessionToken, error) {
+	user, err := u.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch user: %w", err)
+	}
+	if user == nil {
+		return nil, ErrInvalidCredentials
+	}
+
+	role := user.Role
+	if role == "" {
+		role = domain.RoleVictim
+	}
+
+	claims := jwt.MapClaims{
+		"sub":   user.ID,
+		"email": user.Email,
+		"role":  string(role),
+		"exp":   time.Now().Add(u.jwtExpiry).Unix(),
+		"iat":   time.Now().Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(u.jwtSecret)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign jwt: %w", err)
+	}
+
+	return &tokenDomain.SessionToken{
+		AccessToken: tokenString,
+		TokenType:   "Bearer",
+		ExpiresIn:   int64(u.jwtExpiry.Seconds()),
+	}, nil
 }

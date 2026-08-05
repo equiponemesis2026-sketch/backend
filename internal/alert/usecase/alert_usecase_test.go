@@ -142,6 +142,9 @@ type fakeDeviceRepo struct {
 func (f *fakeDeviceRepo) FindByPairingCode(_ context.Context, _ string) (*deviceDomain.PairingCode, error) {
 	return nil, nil
 }
+func (f *fakeDeviceRepo) FindActivePairingCodeByUserID(_ context.Context, _ string) (*deviceDomain.PairingCode, error) {
+	return nil, nil
+}
 func (f *fakeDeviceRepo) FindByID(_ context.Context, _ string) (*deviceDomain.Device, error) {
 	return nil, nil
 }

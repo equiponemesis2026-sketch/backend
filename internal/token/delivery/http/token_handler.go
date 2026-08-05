@@ -61,6 +61,10 @@ func (h *TokenHandler) GenerateCode(w http.ResponseWriter, r *http.Request) {
 		Platform: input.Platform,
 	})
 	if err != nil {
+		if errors.Is(err, usecase.ErrPairingCodeAlreadyActive) {
+			response.WriteError(w, http.StatusConflict, err.Error())
+			return
+		}
 		response.WriteError(w, http.StatusInternalServerError, "Failed to generate pairing code")
 		return
 	}
@@ -72,6 +76,11 @@ func (h *TokenHandler) GenerateCode(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// PairDevice registra un dispositivo a partir de un código de emparejamiento
+// válido. Es una ruta pública: el código actúa como credencial de login
+// (equivalente a vincular una Smart TV) para dispositivos que no pueden
+// teclear correo/contraseña. Si hay un emisor de JWT configurado, la
+// respuesta incluye access_token para que la app quede autenticada de una vez.
 func (h *TokenHandler) PairDevice(w http.ResponseWriter, r *http.Request) {
 	var input domain.PairingRequest
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -79,44 +88,37 @@ func (h *TokenHandler) PairDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, ok := r.Context().Value(middleware.UserIDKey).(string)
-	if !ok || userID == "" {
-		response.WriteError(w, http.StatusUnauthorized, "Missing or invalid user in token")
+	if input.PairingCode == "" {
+		response.WriteError(w, http.StatusBadRequest, "pairing_code is required")
 		return
 	}
 
-	normalizedUserID, err := normalizeUserID(userID)
+	result, err := h.uc.PairDevice(r.Context(), input)
 	if err != nil {
-		response.WriteError(w, http.StatusUnauthorized, "Invalid user_id format")
-		return
-	}
-
-	device, err := h.uc.PairDevice(r.Context(), input, normalizedUserID)
-	if err != nil {
-		if errors.Is(err, usecase.ErrPairingCodeExpired) {
+		switch {
+		case errors.Is(err, usecase.ErrPairingCodeExpired):
 			response.WriteError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if errors.Is(err, usecase.ErrPairingCodeNotFound) {
+		case errors.Is(err, usecase.ErrPairingCodeNotFound):
 			response.WriteError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		if errors.Is(err, usecase.ErrPairingCodeMismatch) {
-			response.WriteError(w, http.StatusForbidden, err.Error())
-			return
-		}
-		if errors.Is(err, usecase.ErrDeviceAlreadyPaired) {
+		case errors.Is(err, usecase.ErrDeviceAlreadyPaired):
 			response.WriteError(w, http.StatusConflict, err.Error())
-			return
+		default:
+			response.WriteError(w, http.StatusInternalServerError, "Failed to pair device")
 		}
-		response.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	data := map[string]interface{}{"device": result.Device}
+	if result.Token != nil {
+		data["access_token"] = result.Token.AccessToken
+		data["token_type"] = result.Token.TokenType
+		data["expires_in"] = result.Token.ExpiresIn
 	}
 
 	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "success",
 		"message": "Device paired successfully",
-		"data":    device,
+		"data":    data,
 	})
 }
 

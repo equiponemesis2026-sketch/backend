@@ -2,9 +2,11 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/nemesis-project/api-nemesis/internal/token/domain"
 )
@@ -24,6 +26,22 @@ func NewDeviceRepository(db *mongo.Database) domain.DeviceRepository {
 func (r *deviceRepository) FindByPairingCode(ctx context.Context, code string) (*domain.PairingCode, error) {
 	var pc domain.PairingCode
 	err := r.pairingCodesCollection.FindOne(ctx, bson.M{"code": code}).Decode(&pc)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &pc, nil
+}
+
+// FindActivePairingCodeByUserID devuelve el código de emparejamiento vigente
+// (no expirado) más reciente del usuario, si existe.
+func (r *deviceRepository) FindActivePairingCodeByUserID(ctx context.Context, userID string) (*domain.PairingCode, error) {
+	filter := bson.M{"user_id": userID, "expires_at": bson.M{"$gt": time.Now().UTC()}}
+	opts := options.FindOne().SetSort(bson.D{{Key: "created_at", Value: -1}})
+	var pc domain.PairingCode
+	err := r.pairingCodesCollection.FindOne(ctx, filter, opts).Decode(&pc)
 	if err == mongo.ErrNoDocuments {
 		return nil, nil
 	}

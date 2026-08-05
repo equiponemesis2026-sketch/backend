@@ -106,6 +106,23 @@ func main() {
 		supportNotifier.SetSupportNotifier(notifier, tokenRepoImpl)
 	}
 
+	// Emparejar por código actúa como login (sin correo/contraseña): el
+	// dispositivo recién vinculado recibe un JWT de sesión, y se avisa por
+	// push a los demás dispositivos de la cuenta por si el emparejamiento
+	// no lo hizo el dueño legítimo.
+	if issuer, ok := userUseCase.(deviceDomain.TokenIssuer); ok {
+		if setter, ok := tokenUc.(interface {
+			SetTokenIssuer(deviceDomain.TokenIssuer)
+		}); ok {
+			setter.SetTokenIssuer(issuer)
+		}
+	}
+	if setter, ok := tokenUc.(interface {
+		SetNotifier(notifDomain.PushNotifier)
+	}); ok {
+		setter.SetNotifier(notifier)
+	}
+
 	hubCtx, hubCancel := context.WithCancel(context.Background())
 	defer hubCancel()
 	telemetryHub := wsHub.NewHub(hubCtx)
@@ -214,7 +231,10 @@ func main() {
 	// Rutas del módulo de vinculación de dispositivos
 	r.Route("/api/v1/devices", func(r chi.Router) {
 		r.With(authMiddleware).Post("/tokens/generate", tokenHandler.GenerateCode)
-		r.With(authMiddleware).Post("/pair", tokenHandler.PairDevice)
+		// Pública: el código de emparejamiento es la credencial (login estilo
+		// Smart TV para dispositivos sin teclado). Rate limit igual que
+		// /auth/login porque cumple el mismo rol.
+		r.With(middleware.RateLimit(10, time.Minute)).Post("/pair", tokenHandler.PairDevice)
 		r.With(authMiddleware).Post("/fcm-token", tokenHandler.RegisterFCMToken)
 	})
 
