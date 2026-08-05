@@ -148,7 +148,7 @@ func main() {
 
 	// --- Módulo 6: Ingesta de audio en tiempo real + Análisis vocal ---
 	audioRepoImpl := audioMongo.NewAudioChunkRepository(db)
-	vocalAnalyzer := aiServices.NewWav2Vec2Analyzer(cfg.StressCriticalThreshold, cfg.StressEmotionalThreshold)
+	vocalAnalyzer := aiServices.NewWav2Vec2Analyzer(cfg.AIAnalyzerURL, cfg.AIAnalyzerTimeout, cfg.StressCriticalThreshold, cfg.StressEmotionalThreshold)
 	audioUC := audioUsecase.NewAudioUseCase(
 		audioRepoImpl,
 		alertRepoImpl,

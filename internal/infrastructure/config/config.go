@@ -24,6 +24,8 @@ type Config struct {
 	StressCriticalThreshold  float64
 	StressEmotionalThreshold float64
 	AIWorkerCount            int
+	AIAnalyzerURL            string
+	AIAnalyzerTimeout        time.Duration
 }
 
 func Load() *Config {
@@ -63,6 +65,8 @@ func Load() *Config {
 		StressCriticalThreshold:  getEnvFloat("STRESS_CRITICAL_THRESHOLD", 0.85),
 		StressEmotionalThreshold: getEnvFloat("STRESS_EMOTIONAL_THRESHOLD", 0.6),
 		AIWorkerCount:            getEnvInt("AI_WORKER_COUNT", 4),
+		AIAnalyzerURL:            getEnv("AI_ANALYZER_URL", "http://localhost:8000"),
+		AIAnalyzerTimeout:        getEnvDuration("AI_ANALYZER_TIMEOUT", 10*time.Second),
 	}
 }
 
@@ -99,6 +103,16 @@ func getEnvFloat(key string, fallback float64) float64 {
 	if v := os.Getenv(key); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			return f
+		}
+	}
+	return fallback
+}
+
+// getEnvDuration parsea una variable de entorno de duración con fallback.
+func getEnvDuration(key string, fallback time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
 		}
 	}
 	return fallback
