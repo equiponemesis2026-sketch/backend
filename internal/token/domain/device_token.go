@@ -50,8 +50,33 @@ type TokenResponse struct {
 	Data    any    `json:"data"`
 }
 
+// SessionToken es el JWT de sesión emitido cuando el emparejamiento por
+// código actúa como login (el dispositivo no tiene forma de teclear
+// correo/contraseña).
+type SessionToken struct {
+	AccessToken string
+	TokenType   string
+	ExpiresIn   int64
+}
+
+// TokenIssuer emite un JWT de sesión para un usuario ya identificado por
+// otro medio (aquí, el propietario de un código de emparejamiento válido).
+// Lo implementa el usecase de usuarios para no duplicar la lógica de firma.
+type TokenIssuer interface {
+	IssueSessionToken(ctx context.Context, userID string) (*SessionToken, error)
+}
+
+// PairDeviceResult agrupa el dispositivo recién vinculado y, si hay un
+// TokenIssuer configurado, el JWT de sesión para que la app no tenga que
+// pedir correo/contraseña.
+type PairDeviceResult struct {
+	Device *Device
+	Token  *SessionToken
+}
+
 type DeviceRepository interface {
 	FindByPairingCode(ctx context.Context, code string) (*PairingCode, error)
+	FindActivePairingCodeByUserID(ctx context.Context, userID string) (*PairingCode, error)
 	FindByID(ctx context.Context, id string) (*Device, error)
 	FindByUserID(ctx context.Context, userID string) (*Device, error)
 	FindAllDevicesByUserID(ctx context.Context, userID string) ([]*Device, error)
@@ -63,6 +88,6 @@ type DeviceRepository interface {
 
 type TokenUseCase interface {
 	GeneratePairingCode(ctx context.Context, input GenerateCodeRequest) (*PairingCode, error)
-	PairDevice(ctx context.Context, input PairingRequest, userID string) (*Device, error)
+	PairDevice(ctx context.Context, input PairingRequest) (*PairDeviceResult, error)
 	RegisterFCMToken(ctx context.Context, input FCMTokenRequest, userID string) error
 }
