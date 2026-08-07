@@ -25,15 +25,19 @@ var (
 
 // AudioUseCase impl la ingesta de fragmentos de audio en tiempo real.
 type audioUseCase struct {
-	chunkRepo     domain.AudioChunkRepository
-	alertLookup   domain.AlertLookup
-	riskUpdater   domain.RiskUpdater
-	analyzer      aiDomain.VocalTensionAnalyzer
-	pool          *aiServices.Pool
-	maxChunkBytes int
+	chunkRepo           domain.AudioChunkRepository
+	alertLookup         domain.AlertLookup
+	riskUpdater         domain.RiskUpdater
+	analyzer            aiDomain.VocalTensionAnalyzer
+	pool                *aiServices.Pool
+	maxChunkBytes       int
+	requiredConsecutive int
 }
 
-// NewAudioUseCase crea el caso de uso de ingesta de audio.
+// NewAudioUseCase crea el caso de uso de ingesta de audio. requiredConsecutive
+// es cuántos chunks seguidos deben marcar distress antes de escalar el
+// riesgo del incidente (<=1 desactiva la confirmación: cada chunk decide
+// por sí solo). Ver domain.DefaultRequiredConsecutiveDistress.
 func NewAudioUseCase(
 	chunkRepo domain.AudioChunkRepository,
 	alertLookup domain.AlertLookup,
@@ -41,13 +45,15 @@ func NewAudioUseCase(
 	analyzer aiDomain.VocalTensionAnalyzer,
 	workerCount int,
 	maxChunkBytes int,
+	requiredConsecutive int,
 ) domain.AudioUseCase {
 	uc := &audioUseCase{
-		chunkRepo:     chunkRepo,
-		alertLookup:   alertLookup,
-		riskUpdater:   riskUpdater,
-		analyzer:      analyzer,
-		maxChunkBytes: maxChunkBytes,
+		chunkRepo:           chunkRepo,
+		alertLookup:         alertLookup,
+		riskUpdater:         riskUpdater,
+		analyzer:            analyzer,
+		maxChunkBytes:       maxChunkBytes,
+		requiredConsecutive: requiredConsecutive,
 	}
 	if uc.maxChunkBytes <= 0 {
 		uc.maxChunkBytes = 1 << 20
@@ -125,8 +131,9 @@ func (uc *audioUseCase) StreamChunk(ctx context.Context, userID string, input *d
 	return nil
 }
 
-// analyzeJob procesa un fragmento y actualiza las métricas de riesgo si el
-// distress supera el umbral crítico. Best-effort: los fallos solo se loguean.
+// analyzeJob procesa un fragmento y, si el distress se confirma en varios
+// chunks seguidos, escala el riesgo del incidente. Best-effort: los fallos
+// solo se loguean.
 func (uc *audioUseCase) analyzeJob(ctx context.Context, job aiServices.Job) {
 	result, err := uc.analyzer.Analyze(ctx, job.Format, job.Audio)
 	if err != nil {
@@ -138,10 +145,48 @@ func (uc *audioUseCase) analyzeJob(ctx context.Context, job aiServices.Job) {
 		slog.Warn("audio: failed to persist analysis result", "chunk_id", job.ChunkID, "error", err)
 	}
 
-	if result.DistressDetected {
-		slog.Warn("audio: distress detected", "chunk_id", job.ChunkID, "alert_id", job.AlertID, "stress_score", result.StressScore, "emotion", result.PrimaryEmotion)
-		if err := uc.riskUpdater.UpdateRiskMetrics(ctx, job.AlertID, result.StressScore, true); err != nil {
-			slog.Warn("audio: failed to update incident risk", "alert_id", job.AlertID, "error", err)
+	if !result.DistressDetected {
+		return
+	}
+
+	confirmed, err := uc.confirmedByConsecutiveChunks(ctx, job.AlertID)
+	if err != nil {
+		slog.Warn("audio: failed to check consecutive distress chunks", "alert_id", job.AlertID, "error", err)
+		return
+	}
+
+	slog.Warn("audio: distress detected in chunk", "chunk_id", job.ChunkID, "alert_id", job.AlertID, "stress_score", result.StressScore, "emotion", result.PrimaryEmotion, "confirmed", confirmed)
+
+	if !confirmed {
+		return
+	}
+
+	if err := uc.riskUpdater.UpdateRiskMetrics(ctx, job.AlertID, result.StressScore, true); err != nil {
+		slog.Warn("audio: failed to update incident risk", "alert_id", job.AlertID, "error", err)
+	}
+}
+
+// confirmedByConsecutiveChunks evita escalar el riesgo por un solo chunk
+// atípico: exige que los últimos `requiredConsecutive` chunks analizados de
+// la alerta hayan marcado distress. El clasificador no distingue "esto no
+// es voz" de una emoción real (silencio puro llegó a marcar 93% "enojo" en
+// pruebas); exigir varios chunks seguidos reduce mucho ese riesgo sin
+// retrasar el análisis individual de cada chunk, que sigue siendo al instante.
+func (uc *audioUseCase) confirmedByConsecutiveChunks(ctx context.Context, alertID string) (bool, error) {
+	if uc.requiredConsecutive <= 1 {
+		return true, nil
+	}
+	recent, err := uc.chunkRepo.FindRecentByAlertID(ctx, alertID, uc.requiredConsecutive)
+	if err != nil {
+		return false, err
+	}
+	if len(recent) < uc.requiredConsecutive {
+		return false, nil
+	}
+	for _, c := range recent {
+		if !c.DistressDetected {
+			return false, nil
 		}
 	}
+	return true, nil
 }

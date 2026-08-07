@@ -26,6 +26,7 @@ type Config struct {
 	AIWorkerCount            int
 	AIAnalyzerURL            string
 	AIAnalyzerTimeout        time.Duration
+	DistressConfirmChunks    int
 }
 
 func Load() *Config {
@@ -67,6 +68,7 @@ func Load() *Config {
 		AIWorkerCount:            getEnvInt("AI_WORKER_COUNT", 4),
 		AIAnalyzerURL:            getEnv("AI_ANALYZER_URL", "http://localhost:8000"),
 		AIAnalyzerTimeout:        getEnvDuration("AI_ANALYZER_TIMEOUT", 10*time.Second),
+		DistressConfirmChunks:    getEnvInt("DISTRESS_CONFIRM_CHUNKS", 3),
 	}
 }
 

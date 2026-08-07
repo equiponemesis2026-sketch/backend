@@ -156,6 +156,7 @@ func main() {
 		vocalAnalyzer,
 		cfg.AIWorkerCount,
 		cfg.AudioMaxChunkBytes,
+		cfg.DistressConfirmChunks,
 	)
 	audioHandler := audioHttp.NewAudioHandler(audioUC)
 

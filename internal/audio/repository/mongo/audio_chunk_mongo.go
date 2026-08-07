@@ -5,6 +5,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/nemesis-project/api-nemesis/internal/audio/domain"
 )
@@ -39,6 +40,25 @@ func (r *audioChunkRepository) FindByAlertAndIndex(ctx context.Context, alertID 
 
 func (r *audioChunkRepository) CountByAlertID(ctx context.Context, alertID string) (int64, error) {
 	return r.coll.CountDocuments(ctx, bson.M{"alert_id": alertID})
+}
+
+// FindRecentByAlertID devuelve los últimos `limit` chunks de la alerta,
+// ordenados del más reciente al más antiguo (por chunk_index).
+func (r *audioChunkRepository) FindRecentByAlertID(ctx context.Context, alertID string, limit int) ([]*domain.AudioChunk, error) {
+	opts := options.Find().
+		SetSort(bson.D{{Key: "chunk_index", Value: -1}}).
+		SetLimit(int64(limit))
+	cursor, err := r.coll.Find(ctx, bson.M{"alert_id": alertID}, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = cursor.Close(ctx) }()
+
+	chunks := []*domain.AudioChunk{}
+	if err := cursor.All(ctx, &chunks); err != nil {
+		return nil, err
+	}
+	return chunks, nil
 }
 
 func (r *audioChunkRepository) UpdateAnalysisResult(ctx context.Context, id string, score float64, confidence float64, distress bool, emotion string) error {

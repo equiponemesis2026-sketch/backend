@@ -7,6 +7,13 @@ import (
 	alertDomain "github.com/nemesis-project/api-nemesis/internal/alert/domain"
 )
 
+// DefaultRequiredConsecutiveDistress es el número de chunks seguidos que
+// deben marcar distress antes de escalar el riesgo del incidente. El
+// clasificador puede fallar en un chunk aislado (ruido, un quiebre de voz
+// benigno); exigir varios seguidos evita que un solo chunk atípico dispare
+// un falso crítico.
+const DefaultRequiredConsecutiveDistress = 3
+
 // AudioFormat identifica el códec del fragmento de audio entrante.
 type AudioFormat string
 
@@ -58,6 +65,7 @@ type AudioChunkRepository interface {
 	Create(ctx context.Context, chunk *AudioChunk) error
 	FindByAlertAndIndex(ctx context.Context, alertID string, index int) (*AudioChunk, error)
 	CountByAlertID(ctx context.Context, alertID string) (int64, error)
+	FindRecentByAlertID(ctx context.Context, alertID string, limit int) ([]*AudioChunk, error)
 	UpdateAnalysisResult(ctx context.Context, id string, score float64, confidence float64, distress bool, emotion string) error
 	AcousticSummary(ctx context.Context, alertID string) (*AcousticSummary, error)
 }
