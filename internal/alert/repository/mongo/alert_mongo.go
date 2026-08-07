@@ -95,12 +95,15 @@ func (r *alertRepository) SetType(ctx context.Context, id string, alertType doma
 }
 
 // UpdateRiskMetrics actualiza las métricas de riesgo del incidente según el
-// análisis de tensión vocal.
+// análisis de tensión vocal. risk_score siempre refleja el último chunk
+// analizado; distress_detected es monotónico (con $max, true en BSON es
+// "mayor" que false): una vez confirmado el distress no se puede revertir
+// porque un chunk posterior salga ambiguo.
 func (r *alertRepository) UpdateRiskMetrics(ctx context.Context, id string, score float64, distress bool) error {
-	update := bson.M{"$set": bson.M{
-		"risk_score":        score,
-		"distress_detected": distress,
-	}}
+	update := bson.M{
+		"$set": bson.M{"risk_score": score},
+		"$max": bson.M{"distress_detected": distress},
+	}
 	_, err := r.coll.UpdateOne(ctx, bson.M{"_id": id}, update)
 	return err
 }

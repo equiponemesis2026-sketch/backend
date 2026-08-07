@@ -3,9 +3,11 @@ package usecase
 import (
 	"context"
 	"errors"
+	"sort"
 	"testing"
 
 	aiDomain "github.com/nemesis-project/api-nemesis/internal/ai_processing/domain"
+	aiServices "github.com/nemesis-project/api-nemesis/internal/ai_processing/services"
 	alertDomain "github.com/nemesis-project/api-nemesis/internal/alert/domain"
 	"github.com/nemesis-project/api-nemesis/internal/audio/domain"
 )
@@ -39,11 +41,30 @@ func (f *fakeChunkRepo) FindByAlertAndIndex(_ context.Context, alertID string, i
 func (f *fakeChunkRepo) CountByAlertID(_ context.Context, _ string) (int64, error) { return 0, nil }
 func (f *fakeChunkRepo) UpdateAnalysisResult(_ context.Context, id string, score float64, conf float64, distress bool, emotion string) error {
 	f.updates++
-	f.lastUpd = &domain.AudioChunk{ID: id, StressScore: &score, Confidence: &conf, DistressDetected: distress, PrimaryEmotion: emotion}
+	if c, ok := f.chunks[id]; ok {
+		c.StressScore = &score
+		c.Confidence = &conf
+		c.DistressDetected = distress
+		c.PrimaryEmotion = emotion
+		f.lastUpd = c
+	}
 	return nil
 }
 func (f *fakeChunkRepo) AcousticSummary(_ context.Context, _ string) (*domain.AcousticSummary, error) {
 	return &domain.AcousticSummary{EmotionalBreakdown: map[string]int{}}, nil
+}
+func (f *fakeChunkRepo) FindRecentByAlertID(_ context.Context, alertID string, limit int) ([]*domain.AudioChunk, error) {
+	var matched []*domain.AudioChunk
+	for _, c := range f.chunks {
+		if c.AlertID == alertID {
+			matched = append(matched, c)
+		}
+	}
+	sort.Slice(matched, func(i, j int) bool { return matched[i].ChunkIndex > matched[j].ChunkIndex })
+	if len(matched) > limit {
+		matched = matched[:limit]
+	}
+	return matched, nil
 }
 
 type fakeAlertLookup struct {
@@ -73,8 +94,12 @@ func (f *fakeAnalyzer) Analyze(_ context.Context, _ string, _ []byte) (aiDomain.
 }
 
 func newTestAudioUC(chunkRepo *fakeChunkRepo, alert *alertDomain.Alert, analyzer *fakeAnalyzer) (domain.AudioUseCase, *fakeChunkRepo, *fakeRiskUpdater) {
+	return newTestAudioUCWithConsecutive(chunkRepo, alert, analyzer, 1)
+}
+
+func newTestAudioUCWithConsecutive(chunkRepo *fakeChunkRepo, alert *alertDomain.Alert, analyzer *fakeAnalyzer, requiredConsecutive int) (domain.AudioUseCase, *fakeChunkRepo, *fakeRiskUpdater) {
 	risk := &fakeRiskUpdater{}
-	uc := NewAudioUseCase(chunkRepo, &fakeAlertLookup{alert: alert}, risk, analyzer, 2, 1<<20)
+	uc := NewAudioUseCase(chunkRepo, &fakeAlertLookup{alert: alert}, risk, analyzer, 2, 1<<20, requiredConsecutive)
 	return uc, chunkRepo, risk
 }
 
@@ -175,5 +200,88 @@ func TestStreamChunk_TooLarge(t *testing.T) {
 	})
 	if !errors.Is(err, ErrAudioTooLarge) {
 		t.Fatalf("expected ErrAudioTooLarge, got %v", err)
+	}
+}
+
+// seedChunk inserta un chunk ya analizado directamente en el fake repo, sin
+// pasar por StreamChunk, para armar el historial que confirmedByConsecutiveChunks
+// va a leer.
+func seedChunk(repo *fakeChunkRepo, alertID string, index int, distress bool) {
+	repo.chunks["seed_"+alertID+"_"+string(rune('0'+index))] = &domain.AudioChunk{
+		ID: "seed_" + alertID + "_" + string(rune('0'+index)), AlertID: alertID, ChunkIndex: index, DistressDetected: distress,
+	}
+}
+
+// TestAnalyzeJob_SingleChunk_NotEnoughToConfirm fija que un solo chunk en
+// distress no alcanza para escalar el riesgo si se exigen varios seguidos:
+// evita que un chunk aislado (ruido mal clasificado) dispare un falso crítico.
+func TestAnalyzeJob_SingleChunk_NotEnoughToConfirm(t *testing.T) {
+	chunkRepo := newFakeChunkRepo()
+	alert := &alertDomain.Alert{ID: "alt_1", UserID: "usr_v", Status: alertDomain.AlertStatusActive}
+	analyzer := &fakeAnalyzer{result: aiDomain.VocalTensionResult{StressScore: 0.9, DistressDetected: true, PrimaryEmotion: "miedo"}}
+	uc, chunkRepo, risk := newTestAudioUCWithConsecutive(chunkRepo, alert, analyzer, 3)
+
+	seedChunk(chunkRepo, "alt_1", 0, true)
+	audioUC := uc.(*audioUseCase)
+	audioUC.analyzeJob(context.Background(), aiServices.Job{AlertID: "alt_1", ChunkID: "seed_alt_1_0", Format: "wav", Audio: []byte{1}})
+
+	if risk.calls != 0 {
+		t.Errorf("expected no risk escalation with only 1 distress chunk (need 3), got %d calls", risk.calls)
+	}
+}
+
+// TestAnalyzeJob_ConsecutiveChunksConfirm fija que 3 chunks seguidos en
+// distress sí escalan el riesgo del incidente.
+func TestAnalyzeJob_ConsecutiveChunksConfirm(t *testing.T) {
+	chunkRepo := newFakeChunkRepo()
+	alert := &alertDomain.Alert{ID: "alt_1", UserID: "usr_v", Status: alertDomain.AlertStatusActive}
+	analyzer := &fakeAnalyzer{result: aiDomain.VocalTensionResult{StressScore: 0.9, DistressDetected: true, PrimaryEmotion: "miedo"}}
+	uc, chunkRepo, risk := newTestAudioUCWithConsecutive(chunkRepo, alert, analyzer, 3)
+
+	seedChunk(chunkRepo, "alt_1", 0, true)
+	seedChunk(chunkRepo, "alt_1", 1, true)
+	seedChunk(chunkRepo, "alt_1", 2, true)
+	audioUC := uc.(*audioUseCase)
+	audioUC.analyzeJob(context.Background(), aiServices.Job{AlertID: "alt_1", ChunkID: "seed_alt_1_2", Format: "wav", Audio: []byte{1}})
+
+	if risk.calls != 1 {
+		t.Errorf("expected risk escalation after 3 consecutive distress chunks, got %d calls", risk.calls)
+	}
+}
+
+// TestAnalyzeJob_BrokenStreak_DoesNotConfirm fija que un chunk sin distress
+// en medio de la ventana reciente rompe la confirmación.
+func TestAnalyzeJob_BrokenStreak_DoesNotConfirm(t *testing.T) {
+	chunkRepo := newFakeChunkRepo()
+	alert := &alertDomain.Alert{ID: "alt_1", UserID: "usr_v", Status: alertDomain.AlertStatusActive}
+	analyzer := &fakeAnalyzer{result: aiDomain.VocalTensionResult{StressScore: 0.9, DistressDetected: true, PrimaryEmotion: "miedo"}}
+	uc, chunkRepo, risk := newTestAudioUCWithConsecutive(chunkRepo, alert, analyzer, 3)
+
+	seedChunk(chunkRepo, "alt_1", 0, false) // chunk previo sin distress
+	seedChunk(chunkRepo, "alt_1", 1, true)
+	seedChunk(chunkRepo, "alt_1", 2, true)
+	audioUC := uc.(*audioUseCase)
+	audioUC.analyzeJob(context.Background(), aiServices.Job{AlertID: "alt_1", ChunkID: "seed_alt_1_2", Format: "wav", Audio: []byte{1}})
+
+	if risk.calls != 0 {
+		t.Errorf("expected no escalation when the streak is broken, got %d calls", risk.calls)
+	}
+}
+
+// TestAnalyzeJob_RequiredConsecutiveOne_ConfirmsImmediately confirma que
+// con requiredConsecutive<=1 el comportamiento es el de antes: cada chunk
+// decide por sí solo, sin esperar confirmación.
+func TestAnalyzeJob_RequiredConsecutiveOne_ConfirmsImmediately(t *testing.T) {
+	chunkRepo := newFakeChunkRepo()
+	alert := &alertDomain.Alert{ID: "alt_1", UserID: "usr_v", Status: alertDomain.AlertStatusActive}
+	analyzer := &fakeAnalyzer{result: aiDomain.VocalTensionResult{StressScore: 0.9, DistressDetected: true, PrimaryEmotion: "miedo"}}
+	uc, chunkRepo, risk := newTestAudioUCWithConsecutive(chunkRepo, alert, analyzer, 1)
+
+	seedChunk(chunkRepo, "alt_1", 0, true)
+	audioUC := uc.(*audioUseCase)
+	audioUC.analyzeJob(context.Background(), aiServices.Job{AlertID: "alt_1", ChunkID: "seed_alt_1_0", Format: "wav", Audio: []byte{1}})
+
+	if risk.calls != 1 {
+		t.Errorf("expected immediate escalation with requiredConsecutive=1, got %d calls", risk.calls)
 	}
 }
